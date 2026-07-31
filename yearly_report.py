@@ -1,5 +1,5 @@
 """
-Annual Performance Report for USD/EUR Quant Strategy
+Annual Performance Report for AUD/USD Quant Strategy
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -54,7 +54,7 @@ bh_yearly.index = bh_yearly.index.year
 # Print report
 print()
 print("=" * 85)
-print("  USD/EUR Quant Strategy - Annual Performance Breakdown (2015-2025)")
+print("  AUD/USD Quant Strategy - Annual Performance Breakdown (2015-2025)")
 print("  Strategy: Ensemble (Trend + Reversion + Momentum + XGBoost ML)")
 print("  Mode: Event-Driven with Trailing Stop & Risk Management")
 print("=" * 85)

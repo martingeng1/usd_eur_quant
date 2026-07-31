@@ -20,7 +20,7 @@ class CTraderExecutor:
     3. 获取 Access Token
     """
 
-    def __init__(self, access_token=None, app_id="quant_eurusd", api_url="https://api.ctrader.com"):
+    def __init__(self, access_token=None, app_id="quant_audusd", api_url="https://api.ctrader.com"):
         self.access_token = access_token
         self.app_id = app_id
         self.api_url = api_url.rstrip("/")
@@ -92,7 +92,7 @@ class CTraderExecutor:
             return resp.json()
         return []
 
-    def get_symbol_info(self, symbol="EURUSD"):
+    def get_symbol_info(self, symbol="AUDUSD"):
         """获取品种信息"""
         if not self.connected:
             return None
@@ -101,7 +101,7 @@ class CTraderExecutor:
             return resp.json()
         return None
 
-    def place_market_order(self, symbol="EURUSD", direction="BUY", volume=10000):
+    def place_market_order(self, symbol="AUDUSD", direction="BUY", volume=10000):
         """
         下市价单
 
@@ -141,7 +141,7 @@ class CTraderExecutor:
             print(f"[cTrader] 下单异常: {e}")
             return None
 
-    def place_limit_order(self, symbol="EURUSD", direction="BUY", volume=10000,
+    def place_limit_order(self, symbol="AUDUSD", direction="BUY", volume=10000,
                           limit_price=1.0):
         """下限价单"""
         if not self.connected:
@@ -170,7 +170,7 @@ class CTraderExecutor:
             print(f"[cTrader] 下单异常: {e}")
             return None
 
-    def place_stop_order(self, symbol="EURUSD", direction="BUY", volume=10000,
+    def place_stop_order(self, symbol="AUDUSD", direction="BUY", volume=10000,
                          stop_price=1.0):
         """下止损单"""
         if not self.connected:
@@ -218,7 +218,7 @@ class CTraderExecutor:
             else:
                 print(f"[cTrader] 平仓失败: {resp.status_code}")
 
-    def get_candles(self, symbol="EURUSD", timeframe="H1", count=500):
+    def get_candles(self, symbol="AUDUSD", timeframe="H1", count=500):
         """
         获取K线数据
 

@@ -1,5 +1,5 @@
 """
-USD/EUR 量化交易系统 — 主入口
+AUD/USD 量化交易系统 — 主入口
 """
 import sys
 import os
@@ -11,7 +11,7 @@ import numpy as np
 from datetime import datetime
 
 import config
-from data.fetch_data import fetch_eurusd, load_data
+from data.fetch_data import fetch_audusd, load_data
 from ensemble.ensemble_engine import compute_ensemble_signal
 from backtest.backtest_engine import vectorized_backtest, event_driven_backtest
 
@@ -19,7 +19,7 @@ from backtest.backtest_engine import vectorized_backtest, event_driven_backtest
 def print_header():
     print("""
     ╔══════════════════════════════════════════════════╗
-    ║        USD/EUR 量化交易系统 v2.0                   ║
+    ║        AUD/USD 量化交易系统 v2.0                   ║
     ║        Multi-Strategy Ensemble Trading Engine     ║
     ╚══════════════════════════════════════════════════╝
     """)
@@ -92,7 +92,7 @@ def plot_results(results, save_path=None):
     returns.index = pd.to_datetime(returns.index, utc=True)
 
     fig, axes = plt.subplots(3, 1, figsize=(16, 12), gridspec_kw={"height_ratios": [3, 1, 1]})
-    fig.suptitle("USD/EUR Quant Trading System - Backtest Results", fontsize=16, fontweight="bold")
+    fig.suptitle("AUD/USD Quant Trading System - Backtest Results", fontsize=16, fontweight="bold")
 
     ax1 = axes[0]
     ax1.plot(equity.index, equity.values, color="#2196F3", linewidth=1.5, label="Strategy Equity")
@@ -102,9 +102,13 @@ def plot_results(results, save_path=None):
             color = "green" if t.get("pnl", 0) > 0 else "red"
             marker = "^" if t.get("pnl", 0) > 0 else "v"
             exit_time = t.get("exit_time")
-            if exit_time and exit_time in equity.index:
-                idx_pos = equity.index.get_loc(exit_time)
-                ax1.scatter(exit_time, equity.iloc[idx_pos], c=color, marker=marker, s=50, alpha=0.7, zorder=5)
+            if exit_time is not None:
+                try:
+                    exit_ts = pd.Timestamp(exit_time).tz_localize(None)
+                    if exit_ts in equity.index:
+                        ax1.scatter(exit_ts, equity.loc[exit_ts], c=color, marker=marker, s=50, alpha=0.7, zorder=5)
+                except Exception:
+                    pass
     ax1.set_ylabel("Equity (USD)", fontsize=11)
     ax1.set_title(f"Equity Curve | Return: {stats.get('total_return', 0)*100:.2f}% | Sharpe: {stats.get('sharpe_ratio', 0):.2f} | Win: {stats.get('win_rate', 0)*100:.1f}%")
     ax1.legend(loc="upper left")
@@ -138,7 +142,7 @@ def plot_results(results, save_path=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="USD/EUR 量化交易系统")
+    parser = argparse.ArgumentParser(description="AUD/USD 量化交易系统")
     parser.add_argument("--train-ml", action="store_true")
     parser.add_argument("--mode", choices=["backtest", "live"], default="backtest")
     parser.add_argument("--plot", action="store_true")
@@ -147,11 +151,11 @@ def main():
 
     print_header()
 
-    print("\n[1/5] 获取 EUR/USD 数据...")
+    print("\n[1/5] 获取 AUD/USD 数据...")
     try:
         df = load_data(interval=args.interval)
     except FileNotFoundError:
-        df = fetch_eurusd(start=config.DATA_START, end=config.DATA_END, interval=args.interval)
+        df = fetch_audusd(start=config.DATA_START, end=config.DATA_END, interval=args.interval)
     print(f"  数据范围: {df.index[0]} -> {df.index[-1]}")
     print(f"  数据量: {len(df)} 条")
     print(f"  价格范围: {df['close'].min():.5f} - {df['close'].max():.5f}")
@@ -183,14 +187,25 @@ def main():
     print_stats(vec_results["stats"], "向量化回测绩效")
     print_trade_summary(vec_results["trades"], "向量化交易记录")
 
-    print("  --- 事件驱动回测 (含风险管理) ---")
+    print("  --- 事件驱动回测 (含风险管理 v3 + 动态仓位 + 熔断) ---")
+    signal_strength = ensemble_result.get("signal_strength", None)
     ev_results = event_driven_backtest(df, signal, initial_capital=config.INITIAL_CAPITAL,
-                                        spread=config.BACKTEST_SPREAD, commission=config.BACKTEST_COMMISSION,
-                                        slippage=config.BACKTEST_SLIPPAGE)
-    print_stats(ev_results["stats"], "事件驱动回测绩效 (含风险控制)")
+                                         spread=config.BACKTEST_SPREAD, commission=config.BACKTEST_COMMISSION,
+                                         slippage=config.BACKTEST_SLIPPAGE,
+                                         signal_strength=signal_strength)
+    print_stats(ev_results["stats"], "事件驱动回测绩效 (含风险控制 v3)")
     print_trade_summary(ev_results["trades"], "事件驱动交易记录")
 
-    print("  --- 基准对比 (买入持有 EUR/USD) ---")
+    # 显示风控统计
+    long_pct_sig = (signal == 1).sum() / len(signal) * 100
+    short_pct_sig = (signal == -1).sum() / len(signal) * 100
+    flat_pct_sig = (signal == 0).sum() / len(signal) * 100
+    print(f"\n  信号过滤后: 多头{long_pct_sig:.1f}% | 空头{short_pct_sig:.1f}% | 空仓{flat_pct_sig:.1f}%")
+    if signal_strength is not None:
+        avg_strength = signal_strength[signal != 0].mean()
+        print(f"  平均信号强度: {avg_strength:.3f}")
+
+    print("  --- 基准对比 (买入持有 AUD/USD) ---")
     bh_returns = df["close"].pct_change().fillna(0)
     bh_equity = (1 + bh_returns).cumprod() * config.INITIAL_CAPITAL
     bh_equity.index = pd.to_datetime(bh_equity.index, utc=True)
@@ -220,7 +235,8 @@ def main():
     print(f"  {'-'*50}")
     print(f"  {'Total Return':<20} {strat_ret:>14.2f}% {bh_total_return*100:>14.2f}%")
     print(f"  {'Sharpe Ratio':<20} {strat_sharpe:>15.4f} {bh_sharpe:>15.4f}")
-    print(f"  {'Max Drawdown':<20} {strat_dd:>14.2f}% {bh_max_dd*100:>14.2f}%")
+    bh_dd_val = float(bh_max_dd.values[0] if hasattr(bh_max_dd, 'values') else bh_max_dd)
+    print(f"  {'Max Drawdown':<20} {strat_dd:>14.2f}% {bh_dd_val*100:>14.2f}%")
     print(f"  {'Win Rate':<20} {strat_wr:>14.2f}% {'N/A':>15}")
     print(f"  {'Profit Factor':<20} {strat_pf:>15.4f} {'N/A':>15}")
     print("=" * 60)

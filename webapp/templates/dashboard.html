@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>USD/EUR 量化交易系统 v9 — Operations Console</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --ink: #17232c;
+      --muted: #61717d;
+      --line: #d8e0e4;
+      --surface: #ffffff;
+      --canvas: #f2f5f5;
+      --nav: #15313b;
+      --teal: #087c74;
+      --teal-soft: #e6f3f0;
+      --blue: #205ea6;
+      --blue-soft: #eaf1f9;
+      --amber: #9b5b08;
+      --amber-soft: #fff2d9;
+      --red: #b4232f;
+      --red-soft: #fdecef;
+      --green: #16704e;
+      --green-soft: #e6f5ed;
+      --shadow: 0 1px 2px rgba(21, 49, 59, .07);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      color: var(--ink);
+      background: var(--canvas);
+      font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+    button, input, select { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .48; }
+    .busy button { pointer-events: none; }
+
+    /* ── Topbar ── */
+    .topbar {
+      min-height: 72px;
+      padding: 13px 28px;
+      background: var(--nav);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .topbar h1 { margin: 2px 0 0; font-size: 22px; font-weight: 650; }
+    .eyebrow, .step-label {
+      margin: 0;
+      color: #7ad0c8;
+      font-size: 10px;
+      line-height: 1.4;
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .top-status { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+    .badge { padding: 5px 10px; font-size: 10px; font-weight: 800; border-radius: 2px; }
+    .badge-paper { color: #fff; background: #a64b18; }
+    .badge-live { color: #fff; background: var(--green); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #c17a13; }
+    .status-dot.online { background: #39b779; }
+
+    /* ── Warning bar ── */
+    .warning-bar {
+      min-height: 36px;
+      padding: 8px 28px;
+      border-bottom: 1px solid #efd3a3;
+      background: var(--amber-soft);
+      color: #63410f;
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+    .warning-bar strong { color: #8c4507; }
+
+    /* ── Main layout ── */
+    main { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: calc(100vh - 108px); }
+    .sidebar { padding: 20px 16px; color: #dce7e9; background: #203b45; display: flex; flex-direction: column; gap: 0; }
+    .side-section { padding: 0 4px 18px; margin-bottom: 16px; border-bottom: 1px solid #3a535c; }
+    .side-section h2 { margin: 0 0 10px; color: white; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .key-values { margin: 0; display: grid; gap: 2px; }
+    .key-values div, .safety-row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; }
+    .key-values dt, .safety-row span { color: #aebfc4; font-size: 11px; }
+    .key-values dd, .safety-row b { margin: 0; font-size: 11px; text-align: right; overflow-wrap: anywhere; color: #e8f0f2; }
+    .ok { color: #69d2a2; }
+    .warn { color: #e5a63b; }
+    .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    .steps li { display: flex; align-items: center; gap: 8px; color: #adbdc2; font-size: 12px; padding: 4px 0; }
+    .steps li span { width: 20px; height: 20px; border: 1px solid #60777f; display: grid; place-items: center; font-size: 10px; border-radius: 50%; }
+    .steps li.done { color: white; }
+    .steps li.done span { border-color: #53bb8a; background: #23694f; }
+    .danger-button { width: 100%; min-height: 34px; border: 1px solid transparent; padding: 8px 11px; font-weight: 650; font-size: 12px; border-radius: 3px; color: white; background: var(--red); margin-top: auto; }
+
+    /* ── Workspace ── */
+    .workspace { min-width: 0; padding: 20px; }
+    .summary-strip {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }
+    .summary-strip div { padding: 13px 16px; border-right: 1px solid var(--line); }
+    .summary-strip div:last-child { border-right: 0; }
+    .summary-strip span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; font-weight: 700; margin-bottom: 2px; }
+    .summary-strip strong { display: block; font-size: 16px; }
+    .summary-strip .pnl-positive { color: var(--green); }
+    .summary-strip .pnl-negative { color: var(--red); }
+
+    /* ── Panels ── */
+    .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+    .panel-grid.full { grid-template-columns: 1fr; }
+    .panel {
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      border-radius: 4px;
+    }
+    .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+    .panel h2 { margin: 3px 0 0; font-size: 16px; }
+    .panel .step-label { color: var(--teal); }
+    .pill { padding: 4px 8px; color: var(--muted); background: #edf1f2; font-size: 10px; font-weight: 700; white-space: nowrap; border-radius: 2px; }
+    .pill.ok { color: var(--green); background: var(--green-soft); }
+    .pill.warn { color: var(--amber); background: var(--amber-soft); }
+    .pill.bad { color: var(--red); background: var(--red-soft); }
+    .pill.blue { color: var(--blue); background: var(--blue-soft); }
+
+    /* ── Buttons ── */
+    .primary-button, .secondary-button, .submit-button, .cancel-button {
+      min-height: 34px;
+      border: 1px solid transparent;
+      padding: 7px 14px;
+      font-weight: 650;
+      font-size: 12px;
+      border-radius: 3px;
+    }
+    .primary-button { color: white; background: var(--blue); }
+    .primary-button:hover { background: #1a4d87; }
+    .secondary-button { color: #174f80; border-color: #a9bfd4; background: var(--blue-soft); }
+    .secondary-button:hover { background: #dde8f3; }
+    .cancel-button { color: #8a271f; border-color: #d6a59f; background: #fff0ed; }
+
+    /* ── Form controls ── */
+    .form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 14px; }
+    .form-row label { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    select, input[type="text"], input[type="number"], input[type="search"] {
+      min-height: 34px;
+      padding: 7px 8px;
+      border: 1px solid #bac6cc;
+      border-radius: 2px;
+      color: var(--ink);
+      background: white;
+      font-size: 13px;
+    }
+    select:focus, input:focus { outline: 2px solid #82aeda; outline-offset: 1px; }
+    input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--teal); }
+
+    /* ── KPI cards ── */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .kpi-card {
+      padding: 14px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 4px;
+      box-shadow: var(--shadow);
+    }
+    .kpi-card .label { color: var(--muted); font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: 0.5px; }
+    .kpi-card .value { margin-top: 6px; font-size: 24px; font-weight: 700; }
+    .kpi-card .sub { margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .pnl-positive { color: var(--green); }
+    .pnl-negative { color: var(--red); }
+    .pnl-neutral { color: var(--blue); }
+
+    /* ── Tables ── */
+    .table-wrap { max-height: 340px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: #f7f9f9; font-size: 10px; text-align: left; text-transform: uppercase; }
+    th, td { padding: 10px 14px; border-bottom: 1px solid #e8edef; white-space: nowrap; }
+    tr:hover { background: #f7fafa; }
+    .empty-cell, .empty-state { color: var(--muted); font-style: italic; }
+    .side-buy { color: var(--green); font-weight: 750; }
+    .side-sell { color: var(--red); font-weight: 750; }
+    .tag { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 700; }
+    .tag-buy { background: var(--green-soft); color: var(--green); }
+    .tag-sell { background: var(--red-soft); color: var(--red); }
+    .tag-flat { background: #edf1f2; color: var(--muted); }
+
+    /* ── Config grid ── */
+    .config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+    .config-item { padding: 12px 14px; background: var(--surface); border: 1px solid #e8edef; border-radius: 4px; }
+    .config-item .label { color: var(--muted); font-size: 10px; text-transform: uppercase; font-weight: 700; }
+    .config-item .val { margin-top: 4px; font-size: 15px; font-weight: 650; color: var(--blue); }
+
+    /* ── Alert ── */
+    .alert { padding: 12px 14px; border-radius: 3px; margin-bottom: 12px; font-size: 12px; }
+    .alert-error { background: var(--red-soft); border: 1px solid #e5b2b0; color: var(--red); }
+    .alert-success { background: var(--green-soft); border: 1px solid #a3d4a6; color: var(--green); }
+
+    /* ── Hash line / code ── */
+    .hash-line { margin: 8px 0 0; color: var(--muted); font-size: 10px; }
+    code { font-family: "Cascadia Mono", Consolas, "Courier New", monospace; overflow-wrap: anywhere; background: #f2f5f5; padding: 1px 4px; border-radius: 2px; font-size: 11px; }
+
+    /* ── Section divider ── */
+    .section-divider { border: 0; border-top: 3px solid var(--teal); margin: 14px 0 0; }
+
+    /* ── Account valuation strip ── */
+    .account-valuation-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .account-valuation-strip > div {
+      min-width: 0;
+      padding: 12px 14px;
+      border-right: 1px solid var(--line);
+    }
+    .account-valuation-strip > div:last-child { border-right: 0; }
+    .account-valuation-strip span,
+    .account-valuation-strip small {
+      display: block;
+      color: var(--muted);
+    }
+    .account-valuation-strip span {
+      font-size: 9px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+    .account-valuation-strip strong {
+      display: block;
+      margin: 5px 0 3px;
+      font-size: 17px;
+    }
+    .account-valuation-strip small {
+      overflow: hidden;
+      font-size: 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; gap: 0; margin-bottom: 18px; border-bottom: 2px solid var(--line); }
+    .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; font-weight: 650; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+    .tab:hover { color: var(--ink); }
+    .tab.active { color: var(--teal); border-bottom-color: var(--teal); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ── Loading spinner ── */
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--teal); border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Responsive ── */
+    @media (max-width: 1100px) {
+      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .panel-grid { grid-template-columns: 1fr; }
+      .summary-strip { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 760px) {
+      .topbar { padding: 12px 16px; }
+      .topbar h1 { font-size: 18px; }
+      .warning-bar { padding: 8px 16px; flex-direction: column; gap: 3px; }
+      main { display: block; }
+      .sidebar { padding: 14px 16px; }
+      .side-section { display: none; }
+      .sidebar .danger-button { max-width: 220px; }
+      .workspace { padding: 14px; }
+      .summary-strip { grid-template-columns: repeat(2, 1fr); }
+      .kpi-grid { grid-template-columns: 1fr 1fr; }
+      .form-row { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <p class="eyebrow">USD / EUR QUANTITATIVE TRADING</p>
+    <h1>Operations Console v9</h1>
+  </div>
+  <div class="top-status">
+    <span class="badge badge-paper">BACKTEST & MONITOR</span>
+    <span class="status-dot" id="gateway-dot"></span>
+    <span id="gateway-label">System Ready</span>
+  </div>
+</header>
+
+<div class="warning-bar">
+  <strong>FOR RESEARCH & MONITORING</strong>
+  <span>This console displays backtest results and live monitoring. No automated order submission.</span>
+</div>
+
+<main>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <section class="side-section">
+      <h2>Session</h2>
+      <dl class="key-values">
+        <div><dt>System</dt><dd>USD/EUR v9</dd></div>
+        <div><dt>Timeframe</dt><dd id="sess-timeframe">1 Day</dd></div>
+        <div><dt>Capital</dt><dd id="sess-capital">$10,000</dd></div>
+        <div><dt>Last Backtest</dt><dd id="sess-last-bt">-</dd></div>
+      </dl>
+    </section>
+    <section class="side-section">
+      <h2>Safety Limits</h2>
+      <div class="safety-row"><span>Max Drawdown</span><b class="ok">15%</b></div>
+      <div class="safety-row"><span>Daily Loss</span><b class="ok">4%</b></div>
+      <div class="safety-row"><span>Consecutive Losses</span><b>6</b></div>
+      <div class="safety-row"><span>Cooldown Bars</span><b>20</b></div>
+    </section>
+    <section class="side-section">
+      <h2>Workflow</h2>
+      <ol class="steps" id="workflow-steps">
+        <li data-step="data" class="done"><span>1</span>Load Data</li>
+        <li data-step="signals"><span>2</span>Generate Signals</li>
+        <li data-step="backtest" class="done"><span>3</span>Run Backtest</li>
+        <li data-step="review"><span>4</span>Review Results</li>
+        <li data-step="deploy"><span>5</span>Deploy Live</li>
+      </ol>
+    </section>
+    <button class="danger-button" id="resetCacheBtn" type="button">Clear Backtest Cache</button>
+  </aside>
+
+  <!-- Workspace -->
+  <section class="workspace">
+
+    <!-- Summary Strip -->
+    <section class="summary-strip" id="summary-strip" style="display:none">
+      <div><span>Total Return</span><strong id="sum-return">-</strong></div>
+      <div><span>CAGR</span><strong id="sum-cagr">-</strong></div>
+      <div><span>Max Drawdown</span><strong id="sum-dd">-</strong></div>
+      <div><span>Sharpe Ratio</span><strong id="sum-sharpe">-</strong></div>
+      <div><span>Win Rate</span><strong id="sum-winrate">-</strong></div>
+    </section>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('backtest')">Backtest</div>
+      <div class="tab" onclick="switchTab('config')">Configuration</div>
+      <div class="tab" onclick="switchTab('live')">Live Monitor</div>
+    </div>
+
+    <!-- ── Backtest Tab ── -->
+    <div id="tab-backtest" class="tab-content active">
+      <div class="panel">
+        <div class="panel-head">
+          <div><p class="step-label">01 · EXECUTION</p><h2>Run Backtest</h2></div>
+          <span class="pill blue" id="bt-pill">Idle</span>
+        </div>
+        <p class="hash-line" style="margin-bottom:12px">Select interval, toggle ML training and run a fresh backtest.</p>
+        <div class="form-row">
+          <label>Interval<br><select id="btInterval">
+            <option value="1d" selected>Daily (1D)</option>
+            <option value="4h">4-Hour (4H)</option>
+            <option value="1h">1-Hour (1H)</option>
+          </select></label>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="btTrainML" checked> Train ML Model
+          </label>
+          <button class="primary-button" onclick="runBacktest()">▶ Start Backtest</button>
+          <span id="btStatus" style="color:var(--muted);font-size:12px;align-self:center"></span>
+        </div>
+        <div id="btError" class="alert alert-error" style="display:none"></div>
+      </div>
+
+      <!-- KPI Grid -->
+      <div class="kpi-grid" id="kpiGrid" style="display:none">
+        <div class="kpi-card"><div class="label">Total Return</div><div class="value" id="kpiReturn">--</div><div class="sub">Strategy vs Buy & Hold</div></div>
+        <div class="kpi-card"><div class="label">CAGR</div><div class="value" id="kpiCAGR">--</div><div class="sub">Annualized</div></div>
+        <div class="kpi-card"><div class="label">Max Drawdown</div><div class="value" id="kpiDD">--</div><div class="sub">Peak-to-trough</div></div>
+        <div class="kpi-card"><div class="label">Sharpe Ratio</div><div class="value" id="kpiSharpe">--</div><div class="sub">Risk-adjusted return</div></div>
+        <div class="kpi-card"><div class="label">Win Rate</div><div class="value" id="kpiWin">--</div><div class="sub">Profitable trades</div></div>
+        <div class="kpi-card"><div class="label">Total Trades</div><div class="value" id="kpiTrades">--</div><div class="sub">Executed signals</div></div>
+        <div class="kpi-card"><div class="label">Final Equity</div><div class="value" id="kpiEquity">--</div><div class="sub">Ending balance</div></div>
+        <div class="kpi-card"><div class="label">ML Accuracy</div><div class="value" id="kpiML">--</div><div class="sub">Directional prediction</div></div>
+      </div>
+
+      <!-- Signal Stats -->
+      <div class="panel-grid" id="signalGrid" style="display:none">
+        <div class="panel">
+          <div class="panel-head"><div><p class="step-label">SIGNAL DISTRIBUTION</p><h2>Strategy Signals</h2></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
+            <div><span style="color:var(--muted);font-size:10px">LONG</span><br><b style="font-size:20px;color:var(--green)" id="sigLong">-</b></div>
+            <div><span style="color:var(--muted);font-size:10px">SHORT</span><br><b style="font-size:20px;color:var(--red)" id="sigShort">-</b></div>
+            <div><span style="color:var(--muted);font-size:10px">FLAT</span><br><b style="font-size:20px;color:var(--muted)" id="sigFlat">-</b></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><p class="step-label">RISK METRICS</p><h2>Trade Analytics</h2></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><span style="color:var(--muted);font-size:10px">Avg Win</span><br><b id="btAvgWin">-</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Avg Loss</span><br><b id="btAvgLoss">-</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Profit Factor</span><br><b id="btPF">-</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Calmar Ratio</span><br><b id="btCalmar">-</b></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Benchmark -->
+      <div class="panel-grid" id="benchGrid" style="display:none">
+        <div class="panel">
+          <div class="panel-head"><div><p class="step-label">BENCHMARK</p><h2>Buy & Hold Comparison</h2></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><span style="color:var(--muted);font-size:10px">B&H Return</span><br><b id="bhReturn">-</b></div>
+            <div><span style="color:var(--muted);font-size:10px">B&H Max DD</span><br><b id="bhDD">-</b></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Equity Curve Chart -->
+      <div class="panel" id="chartBox" style="display:none">
+        <div class="panel-head">
+          <div><p class="step-label">EQUITY CURVE</p><h2>Strategy Net Asset Value</h2></div>
+        </div>
+        <div style="height:350px;position:relative">
+          <canvas id="equityChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Trade History Table with pagination sub-tabs -->
+      <div class="panel" id="tradesBox" style="display:none;padding:0">
+        <div class="tabs" style="margin:0;padding:8px 16px 0;border-bottom:1px solid var(--line);flex-wrap:wrap" id="tradePagesBar">
+          <span class="pill" id="trade-count" style="margin-left:auto;margin-top:4px">0</span>
+        </div>
+        <div style="padding:16px">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Exit Time</th><th>Direction</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Reason</th><th>Bars</th></tr></thead>
+              <tbody id="tradesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Configuration Tab ── -->
+    <div id="tab-config" class="tab-content">
+      <div class="panel">
+        <div class="panel-head"><div><p class="step-label">STRATEGY PARAMETERS</p><h2>Current Configuration</h2></div></div>
+        <div class="config-grid" id="configGrid"></div>
+      </div>
+    </div>
+
+    <!-- ── Live Monitor Tab ── -->
+    <div id="tab-live" class="tab-content">
+
+      <!-- Broker Connection -->
+      <div class="panel">
+        <div class="panel-head">
+          <div><p class="step-label">01 · CONNECTION</p><h2>Broker Connection</h2></div>
+          <span class="pill" id="gateway-pill">Disconnected</span>
+        </div>
+        <p class="hash-line" id="brokerHelp" style="margin-bottom:12px">Connects to IBKR Gateway / TWS through local API port.</p>
+        <div class="form-row">
+          <label>Broker<br>
+            <select id="brokerType" onchange="updateBrokerFields()" style="width:110px">
+              <option value="ibkr">IBKR</option>
+              <option value="ig">IG</option>
+            </select>
+          </label>
+          <label id="igEnvironmentWrap" style="display:none">Environment<br>
+            <select id="igEnvironment" style="width:100px">
+              <option value="demo">Demo</option>
+              <option value="live">Live</option>
+            </select>
+          </label>
+          <label class="ibkr-field">Host<br><input type="text" id="ibkrHost" value="127.0.0.1" style="width:130px"></label>
+          <label class="ibkr-field">Port<br><input type="number" id="ibkrPort" value="4002" min="1000" max="9999" style="width:80px"></label>
+          <label class="ibkr-field">Client ID<br><input type="number" id="ibkrClientId" value="2" min="1" max="99" style="width:70px"></label>
+          <button class="primary-button" id="btnConnect" onclick="connectIBKR()">Connect</button>
+          <button class="cancel-button" id="btnDisconnect" onclick="disconnectIBKR()" style="display:none">Disconnect</button>
+          <span id="ibkrConnStatus" style="color:var(--muted);font-size:12px;align-self:center"></span>
+        </div>
+      </div>
+
+      <!-- Account P&L Strip -->
+      <div class="account-valuation-strip" id="accountValStrip" style="display:none;margin-top:14px;border:1px solid var(--line);background:var(--surface);grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+        <div><span>Total Funds</span><strong id="liveEquity2">-</strong><small id="liveCapitalNote">IG account equity</small></div>
+        <div><span>Trading Funds Used</span><strong id="liveUsedFunds">-</strong><small id="liveAvailableFunds">Available: -</small></div>
+        <div><span>EUR/USD Last</span><strong id="liveQuote" style="color:var(--blue)">-</strong><small id="liveQuoteTime">Live broker quote</small></div>
+        <div><span>Unrealized P&L</span><strong id="liveUnrealPnL" style="color:var(--muted)">-</strong><small>Open positions</small></div>
+        <div><span>Total P&L (vs Initial)</span><strong id="liveTotalPnL" style="color:var(--muted)">-</strong><small id="livePnLDate">Session</small></div>
+        <div><span>Drawdown</span><strong id="liveDD2" style="color:var(--red)">-</strong><small>Peak to current</small></div>
+      </div>
+
+      <!-- Auto Trading + System Monitor -->
+      <div class="panel-grid" style="margin-top:14px">
+        <div class="panel">
+          <div class="panel-head">
+            <div><p class="step-label">LIVE STATUS</p><h2>System Monitor</h2></div>
+            <span class="pill" id="livePill">Offline</span>
+          </div>
+          <div class="form-row" style="margin-bottom:0">
+            <span id="liveConnected" style="font-size:13px">🔴 Disconnected</span>
+            <span style="color:var(--muted);font-size:11px">Last refresh:</span>
+            <span style="font-size:11px;color:var(--blue)" id="liveLastRefresh">--</span>
+            <button class="primary-button" id="btnAutoTrade" onclick="toggleAutoTrading()" style="display:none;margin-left:auto">
+              ▶ Start Auto Trading
+            </button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><p class="step-label">CURRENT POSITION</p><h2>EUR/USD</h2></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div><span style="color:var(--muted);font-size:10px">Direction</span><br><b id="liveDirection">--</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Quantity</span><br><b id="liveQty">--</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Entry / Avg Cost</span><br><b id="liveEntry">--</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Market Price</span><br><b id="liveMktPrice">--</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Stop Loss</span><br><b id="liveSL" style="color:var(--red)">--</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Take Profit</span><br><b id="liveTP" style="color:var(--green)">--</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Unrealized P&L</span><br><b id="livePosPnL">--</b></div>
+            <div><span style="color:var(--muted);font-size:10px">Realized P&L</span><br><b id="liveRealPnL">--</b></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Portfolio Sub-Tabs -->
+      <div class="panel" id="positionsBox" style="margin-top:14px;padding:0;display:none">
+        <div class="tabs" style="margin:0;padding:8px 16px 0;border-bottom:1px solid var(--line)">
+          <div class="tab active" onclick="switchPortfolioTab('positions')" id="portTabPositions">Positions</div>
+          <div class="tab" onclick="switchPortfolioTab('trades')" id="portTabTrades">Trade History</div>
+        </div>
+
+        <!-- Positions Table -->
+        <div id="tab-portfolio-positions" class="portfolio-tab-content" style="padding:16px">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Symbol</th><th>Qty</th><th>Avg Cost</th><th>Market</th><th>Unreal. P&L</th><th>Real. P&L</th></tr></thead>
+              <tbody id="positionsTableBody"><tr><td colspan="6" class="empty-cell">No open positions.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Trade History Table -->
+        <div id="tab-portfolio-trades" class="portfolio-tab-content" style="padding:16px;display:none">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Exit Time</th><th>Direction</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Reason</th></tr></thead>
+              <tbody id="liveTradesTableBody"><tr><td colspan="6" class="empty-cell">No trades recorded yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Console Output -->
+    <div class="panel" style="margin-top:14px;padding:0">
+      <div class="panel-head" style="padding:12px 16px;border-bottom:1px solid var(--line);margin-bottom:0">
+        <div><p class="step-label">TERMINAL</p><h2>Console Output</h2></div>
+        <button class="text-button" onclick="refreshConsole()" style="font-size:11px;color:var(--blue);background:transparent;border:0;cursor:pointer;padding:2px 6px">Refresh</button>
+      </div>
+      <pre id="consoleOutput" style="margin:0;max-height:300px;overflow-y:auto;padding:12px 16px;color:#d7e5e6;background:#17313b;font:11px/1.5 'Cascadia Mono',Consolas,monospace;border-radius:0 0 4px 4px">Loading console output...</pre>
+    </div>
+
+    <!-- Data info -->
+    <hr class="section-divider" id="dataDivider" style="display:none">
+    <div class="panel" id="dataBox" style="display:none;margin-top:14px">
+      <div class="panel-head">
+        <div><p class="step-label">DATA SOURCE</p><h2>Backtest Data Range</h2></div>
+        <span class="pill ok" id="dataCount">-</span>
+      </div>
+      <p class="hash-line">Range: <code id="dataRange">-</code></p>
+    </div>
+
+  </section>
+</main>
+
+<script>
+// ── Tab switching ──
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.tab[onclick="switchTab('${name}')"]`).classList.add('active');
+  document.getElementById(`tab-${name}`).classList.add('active');
+  if (name === 'config') loadConfig();
+  if (name === 'live') refreshLiveStatus();
+}
+
+// ── Workflow steps ──
+function setWorkflowStep(step, done) {
+  const li = document.querySelector(`#workflow-steps li[data-step="${step}"]`);
+  if (li) {
+    if (done) li.classList.add('done');
+    else li.classList.remove('done');
+  }
+}
+
+// ── Chart state ──
+let equityChart = null;
+
+function renderChart(curve) {
+  const ctx = document.getElementById('equityChart').getContext('2d');
+  if (equityChart) equityChart.destroy();
+  equityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: curve.dates,
+      datasets: [{
+        label: 'Strategy NAV',
+        data: curve.values,
+        borderColor: '#205ea6',
+        backgroundColor: 'rgba(32, 94, 166, 0.05)',
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.1,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#61717d', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#61717d', maxTicksLimit: 10, font: { size: 9 } }, grid: { color: '#e8edef' } },
+        y: { ticks: { color: '#61717d', font: { size: 9 }, callback: v => '$' + v.toLocaleString('en-US') }, grid: { color: '#e8edef' } },
+      },
+      interaction: { intersect: false, mode: 'index' },
+    },
+  });
+}
+
+// ── Run Backtest ──
+async function runBacktest() {
+  const interval = document.getElementById('btInterval').value;
+  const trainML = document.getElementById('btTrainML').checked;
+  const statusEl = document.getElementById('btStatus');
+  const errorEl = document.getElementById('btError');
+  const btPill = document.getElementById('bt-pill');
+
+  errorEl.style.display = 'none';
+  statusEl.innerHTML = '<span class="spinner"></span> Running...';
+  btPill.textContent = 'Running';
+  btPill.className = 'pill warn';
+  setWorkflowStep('data', false);
+  setWorkflowStep('signals', false);
+  setWorkflowStep('backtest', false);
+
+  try {
+    const resp = await fetch('/api/backtest', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({interval, train_ml: trainML}),
+    });
+    const data = await resp.json();
+
+    if (!data.success) {
+      errorEl.textContent = data.error || 'Backtest failed';
+      errorEl.style.display = 'block';
+      statusEl.textContent = 'Failed';
+      btPill.textContent = 'Error';
+      btPill.className = 'pill bad';
+      return;
+    }
+
+    statusEl.textContent = 'Complete';
+    btPill.textContent = 'Success';
+    btPill.className = 'pill ok';
+
+    setWorkflowStep('data', true);
+    setWorkflowStep('signals', true);
+    setWorkflowStep('backtest', true);
+    setWorkflowStep('review', true);
+
+    // Show sections
+    document.getElementById('summary-strip').style.display = 'grid';
+    document.getElementById('kpiGrid').style.display = 'grid';
+    document.getElementById('signalGrid').style.display = 'grid';
+    document.getElementById('benchGrid').style.display = 'grid';
+    document.getElementById('chartBox').style.display = 'block';
+    document.getElementById('tradesBox').style.display = 'block';
+    document.getElementById('dataBox').style.display = 'block';
+    document.getElementById('dataDivider').style.display = 'block';
+
+    const v = data.vectorized;
+    const s = v.stats;
+
+    // Summary strip
+    setSummary('sum-return', s.total_return, '%');
+    setSummary('sum-cagr', s.cagr, '%');
+    setSummary('sum-dd', s.max_dd, '%');
+    setSummary('sum-sharpe', s.sharpe, '');
+    setSummary('sum-winrate', s.win_rate, '%');
+
+    // KPI cards
+    setKPI('kpiReturn', s.total_return, '%');
+    setKPI('kpiCAGR', s.cagr, '%');
+    setKPI('kpiDD', s.max_dd, '%');
+    setKPI('kpiSharpe', s.sharpe, '');
+    setKPI('kpiWin', s.win_rate, '%');
+    setKPI('kpiTrades', s.total_trades, '');
+    setKPI('kpiEquity', s.final_equity, '$');
+    setKPI('kpiML', data.ml_accuracy ? (data.ml_accuracy * 100) : null, '%');
+
+    // Signal stats
+    const sig = data.signal_stats;
+    document.getElementById('sigLong').textContent = sig.long_pct + '%';
+    document.getElementById('sigShort').textContent = sig.short_pct + '%';
+    document.getElementById('sigFlat').textContent = sig.flat_pct + '%';
+
+    // Risk metrics
+    document.getElementById('btAvgWin').textContent = '$' + (s.avg_win || 0).toFixed(2);
+    document.getElementById('btAvgLoss').textContent = '$' + Math.abs(s.avg_loss || 0).toFixed(2);
+    document.getElementById('btPF').textContent = (s.profit_factor || 0).toFixed(2);
+    document.getElementById('btCalmar').textContent = (s.calmar || 0).toFixed(2);
+
+    // Benchmark
+    const bench = data.benchmark;
+    document.getElementById('bhReturn').textContent = bench.total_return + '%';
+    document.getElementById('bhDD').textContent = bench.max_dd + '%';
+
+    // Chart
+    renderChart(v.equity_curve);
+
+    // Trades
+    renderTrades(v.trades);
+    document.getElementById('trade-count').textContent = s.total_trades;
+
+    // Data info
+    document.getElementById('dataRange').textContent = data.data_range;
+    document.getElementById('dataCount').textContent = data.data_count + ' bars';
+
+    // Session sidebar
+    document.getElementById('sess-last-bt').textContent = new Date().toLocaleTimeString();
+    document.getElementById('sess-capital').textContent = '$' + (s.final_equity || 0).toLocaleString('en-US');
+
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.style.display = 'block';
+    statusEl.textContent = 'Error';
+    btPill.textContent = 'Error';
+    btPill.className = 'pill bad';
+  }
+}
+
+function setSummary(id, value, suffix) {
+  const el = document.getElementById(id);
+  if (value === null || value === undefined) {
+    el.textContent = '--';
+    el.className = '';
+    return;
+  }
+  const num = parseFloat(value);
+  const text = num.toFixed(2) + suffix;
+  el.textContent = text;
+  if (num > 0) el.className = 'pnl-positive';
+  else if (num < 0) el.className = 'pnl-negative';
+  else el.className = '';
+}
+
+function setKPI(id, value, suffix) {
+  const el = document.getElementById(id);
+  if (value === null || value === undefined || value === '--') {
+    el.textContent = '--';
+    el.className = 'value pnl-neutral';
+    return;
+  }
+  const num = parseFloat(value);
+  const text = suffix === '$' ? '$' + num.toLocaleString('en-US', {maximumFractionDigits: 0})
+    : suffix === '%' ? num.toFixed(2) + '%'
+    : num.toFixed(2);
+  el.textContent = text;
+  if (num > 0) el.className = 'value pnl-positive';
+  else if (num < 0) el.className = 'value pnl-negative';
+  else el.className = 'value pnl-neutral';
+  if (id === 'kpiDD' && num < 0) el.className = 'value pnl-negative';
+}
+
+let cachedTrades = [];
+let tradesPerPage = 50;
+
+function renderTrades(trades) {
+  cachedTrades = [...trades].reverse();
+  document.getElementById('trade-count').textContent = cachedTrades.length;
+  // 动态生成所有分页标签
+  const totalPages = Math.ceil(cachedTrades.length / tradesPerPage);
+  const bar = document.getElementById('tradePagesBar');
+  // 清除旧的分页标签（保留 pill）
+  bar.querySelectorAll('.tab').forEach(el => el.remove());
+  for (let i = 1; i <= totalPages; i++) {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (i === 1 ? ' active' : '');
+    tab.textContent = 'Page ' + i;
+    tab.onclick = function() { switchTradePage(i); };
+    tab.id = 'tradeTab' + i;
+    bar.insertBefore(tab, document.getElementById('trade-count'));
+  }
+  switchTradePage(1);
+}
+
+function switchTradePage(pageNum) {
+  // Highlight active tab
+  document.querySelectorAll('#tradesBox .tabs .tab').forEach(t => t.classList.remove('active'));
+  const activeTab = document.getElementById('tradeTab' + pageNum);
+  if (activeTab) activeTab.classList.add('active');
+
+  const start = (pageNum - 1) * tradesPerPage;
+  const page = cachedTrades.slice(start, start + tradesPerPage);
+  const tbody = document.getElementById('tradesTableBody');
+  if (!cachedTrades || cachedTrades.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No trades executed.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = page.map((t, i) => `
+    <tr>
+      <td style="color:var(--muted)">${start + i + 1}. ${t.exit_time || ''}</td>
+      <td><span class="tag ${t.direction === 'LONG' ? 'tag-buy' : 'tag-sell'}">${t.direction}</span></td>
+      <td>${t.entry_price}</td>
+      <td>${t.exit_price}</td>
+      <td class="${(t.pnl || 0) >= 0 ? 'pnl-positive' : 'pnl-negative'}">${(t.pnl || 0) >= 0 ? '+' : ''}$${Math.abs(t.pnl || 0).toFixed(2)}</td>
+      <td style="color:var(--muted)">${t.reason || 'signal'}</td>
+      <td style="color:var(--muted)">${t.bars || 0}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Load Configuration ──
+async function loadConfig() {
+  try {
+    const resp = await fetch('/api/config');
+    const config = await resp.json();
+    document.getElementById('sess-capital').textContent = '$' + config.initial_capital.toLocaleString('en-US');
+    document.getElementById('sess-timeframe').textContent = config.primary_timeframe === '1d' ? '1 Day' : config.primary_timeframe;
+
+    const grid = document.getElementById('configGrid');
+    const items = [
+      ['Timeframe', config.primary_timeframe],
+      ['Initial Capital', '$' + config.initial_capital.toLocaleString('en-US')],
+      ['Position Risk', (config.position_size_risk * 100).toFixed(1) + '%'],
+      ['ATR Stop', config.atr_stop + 'x'],
+      ['Take Profit ATR', config.take_profit_atr + 'x'],
+      ['Trailing Stop ATR', config.trailing_stop_atr + 'x'],
+      ['Drawdown Warning', (config.dd_warning * 100).toFixed(0) + '%'],
+      ['Drawdown Danger', (config.dd_danger * 100).toFixed(0) + '%'],
+      ['Near Limit', (config.dd_near_limit * 100).toFixed(0) + '%'],
+      ['Max Drawdown', (config.max_drawdown * 100).toFixed(0) + '%'],
+      ['Min Consensus', config.min_consensus],
+      ['200EMA Filter', config.use_200ema ? 'Enabled' : 'Disabled'],
+      ['Strong Trend Filter', config.use_strong_trend ? 'Enabled' : 'Disabled'],
+    ];
+    if (config.weights) {
+      for (const [k, v] of Object.entries(config.weights)) {
+        items.push(['Weight: ' + k, (v * 100).toFixed(0) + '%']);
+      }
+    }
+    grid.innerHTML = items.map(i => `
+      <div class="config-item"><div class="label">${i[0]}</div><div class="val">${i[1]}</div></div>
+    `).join('');
+  } catch (e) { console.error(e); }
+}
+
+// ── Broker Connection ──
+function updateBrokerFields() {
+  const isIG = document.getElementById('brokerType').value === 'ig';
+  document.querySelectorAll('.ibkr-field').forEach(el => el.style.display = isIG ? 'none' : '');
+  document.getElementById('igEnvironmentWrap').style.display = isIG ? '' : 'none';
+  document.getElementById('brokerHelp').textContent = isIG
+    ? 'IG credentials are read securely from the local .env file. Demo and Live use separate settings.'
+    : 'Connects to IBKR Gateway / TWS through local API port. Default Paper port: 4002.';
+}
+
+async function connectIBKR() {
+  const broker = document.getElementById('brokerType').value;
+  const host = document.getElementById('ibkrHost').value;
+  const port = document.getElementById('ibkrPort').value;
+  const clientId = document.getElementById('ibkrClientId').value;
+  const environment = document.getElementById('igEnvironment').value;
+  const statusEl = document.getElementById('ibkrConnStatus');
+  const btnConnect = document.getElementById('btnConnect');
+  const btnDisconnect = document.getElementById('btnDisconnect');
+  const pill = document.getElementById('gateway-pill');
+
+  statusEl.innerHTML = '<span class="spinner"></span> Connecting...';
+  btnConnect.disabled = true;
+
+  try {
+    const endpoint = broker === 'ig' ? '/api/ig/connect' : '/api/ibkr/connect';
+    const payload = broker === 'ig'
+      ? {environment}
+      : {host, port, client_id: parseInt(clientId)};
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+
+    if (data.success) {
+      statusEl.textContent = data.message + (data.account_id ? ' | Account: ' + data.account_id : '');
+      statusEl.style.color = 'var(--green)';
+      pill.textContent = 'Connected';
+      pill.className = 'pill ok';
+      btnConnect.style.display = 'none';
+      btnDisconnect.style.display = 'inline-block';
+      document.getElementById('gateway-dot').className = 'status-dot online';
+      document.getElementById('gateway-label').textContent = (data.broker || broker.toUpperCase()) + ' Connected';
+      if (data.equity) {
+        document.getElementById('liveEquity2').textContent = '$' + data.equity.toLocaleString('en-US', {minimumFractionDigits: 2});
+      }
+      refreshLiveStatus();
+    } else {
+      statusEl.textContent = data.error;
+      statusEl.style.color = 'var(--red)';
+      pill.textContent = 'Connection Failed';
+      pill.className = 'pill bad';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+    statusEl.style.color = 'var(--red)';
+    pill.textContent = 'Error';
+    pill.className = 'pill bad';
+  }
+  btnConnect.disabled = false;
+}
+
+async function disconnectIBKR() {
+  const statusEl = document.getElementById('ibkrConnStatus');
+  const btnConnect = document.getElementById('btnConnect');
+  const btnDisconnect = document.getElementById('btnDisconnect');
+  const pill = document.getElementById('gateway-pill');
+
+  statusEl.textContent = 'Disconnecting...';
+  btnDisconnect.disabled = true;
+
+  try {
+    const resp = await fetch('/api/ibkr/disconnect', {method: 'POST'});
+    const data = await resp.json();
+    statusEl.textContent = data.message;
+    statusEl.style.color = 'var(--muted)';
+    pill.textContent = 'Disconnected';
+    pill.className = 'pill';
+    btnConnect.style.display = 'inline-block';
+    btnDisconnect.style.display = 'none';
+    document.getElementById('gateway-dot').className = 'status-dot';
+    document.getElementById('gateway-label').textContent = 'Broker Offline';
+    refreshLiveStatus();
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+    statusEl.style.color = 'var(--red)';
+  }
+  btnDisconnect.disabled = false;
+}
+
+// ── Live Status ──
+async function refreshLiveStatus() {
+  try {
+    const resp = await fetch('/api/status');
+    const s = await resp.json();
+
+    // Topbar status
+    document.getElementById('gateway-dot').className = s.ibkr_connected ? 'status-dot online' : 'status-dot';
+    const brokerLabel = s.broker
+      ? s.broker + (s.broker_environment ? ' ' + String(s.broker_environment).toUpperCase() : '')
+      : 'Broker';
+    document.getElementById('gateway-label').textContent = s.ibkr_connected ? brokerLabel + ' Connected' : 'Broker Offline';
+
+    const pill = document.getElementById('livePill');
+    if (s.auto_trading || s.live_running) {
+      pill.textContent = 'Auto Trading';
+      pill.className = 'pill ok';
+      document.getElementById('btnAutoTrade').textContent = '⏹ Stop Auto Trading';
+      document.getElementById('btnAutoTrade').className = 'cancel-button';
+      document.getElementById('btnAutoTrade').style.display = 'inline-block';
+    } else if (s.ibkr_connected) {
+      pill.textContent = 'Connected';
+      pill.className = 'pill ok';
+      document.getElementById('btnAutoTrade').textContent = '▶ Start Auto Trading';
+      document.getElementById('btnAutoTrade').className = 'primary-button';
+      document.getElementById('btnAutoTrade').style.display = 'inline-block';
+    } else {
+      pill.textContent = 'Offline';
+      pill.className = 'pill';
+      document.getElementById('btnAutoTrade').style.display = 'none';
+    }
+
+    document.getElementById('liveConnected').textContent = s.ibkr_connected ? '🟢 ' + brokerLabel + ' Connected' : '🔴 Disconnected';
+    document.getElementById('liveLastRefresh').textContent = s.last_refresh || '--';
+
+    // Account P&L strip
+    const valStrip = document.getElementById('accountValStrip');
+    if (s.ibkr_connected) {
+      valStrip.style.display = 'grid';
+      document.getElementById('liveEquity2').textContent = 'A$' + (s.equity_native || 0).toLocaleString('en-AU', {minimumFractionDigits: 2});
+      document.getElementById('liveCapitalNote').textContent = 'Current IG account equity';
+      const totalFunds = Number(s.equity_native || 0);
+      const availableFunds = Number(s.available_funds_native || 0);
+      const usedFunds = Math.max(0, totalFunds - availableFunds);
+      document.getElementById('liveUsedFunds').textContent = 'A$' + usedFunds.toLocaleString('en-AU', {minimumFractionDigits: 2});
+      document.getElementById('liveAvailableFunds').textContent = 'Available: A$' + availableFunds.toLocaleString('en-AU', {minimumFractionDigits: 2});
+
+      const audPerUsd = s.base_per_usd || 1;
+      const totalPnl = (s.equity_native || 0) - (s.initial_equity_native || s.equity_native || 0);
+      const totalPnlEl = document.getElementById('liveTotalPnL');
+      totalPnlEl.textContent = (totalPnl >= 0 ? '+' : '-') + 'A$' + Math.abs(totalPnl).toLocaleString('en-AU', {minimumFractionDigits: 2});
+      totalPnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+      const unrealEl = document.getElementById('liveUnrealPnL');
+      const unreal = (s.unrealized_pnl || 0) * audPerUsd;
+      unrealEl.textContent = (unreal >= 0 ? '+' : '-') + 'A$' + Math.abs(unreal).toLocaleString('en-AU', {minimumFractionDigits: 2});
+      unrealEl.style.color = unreal >= 0 ? 'var(--green)' : 'var(--red)';
+
+      document.getElementById('liveDD2').textContent = ((s.drawdown || 0) * 100).toFixed(2) + '%';
+      document.getElementById('livePnLDate').textContent = 'Account equity: A$' + ((s.equity_native || 0)).toLocaleString('en-AU', {minimumFractionDigits: 2});
+
+      // Live quote
+      if (s.market_price) {
+        document.getElementById('liveQuote').textContent = s.market_price.toFixed(5);
+        document.getElementById('liveQuoteTime').textContent = 'Last refresh: ' + (s.last_refresh || '--');
+      } else {
+        document.getElementById('liveQuote').textContent = '--';
+        document.getElementById('liveQuoteTime').textContent = 'Live broker quote';
+      }
+    } else {
+      valStrip.style.display = 'none';
+    }
+
+    // Current position panel (use system_status fields set by auto_trading_loop)
+    const posBox = document.getElementById('positionsBox');
+    const hasPosition = s.current_position && (s.current_position === 'Long' || s.current_position === 'Short');
+    if (hasPosition) {
+      posBox.style.display = 'block';
+      document.getElementById('liveDirection').textContent = s.current_position === 'Long' ? '📈 Long' : '📉 Short';
+      document.getElementById('liveDirection').style.color = s.current_position === 'Long' ? 'var(--green)' : 'var(--red)';
+      document.getElementById('liveQty').textContent = String(s.position_qty || 0);
+      document.getElementById('liveEntry').textContent = s.entry_price ? Number(s.entry_price).toFixed(5) : '--';
+      document.getElementById('liveMktPrice').textContent = s.market_price ? Number(s.market_price).toFixed(5) : '--';
+      document.getElementById('liveSL').textContent = s.stop_loss ? Number(s.stop_loss).toFixed(5) : '--';
+      document.getElementById('liveTP').textContent = s.take_profit ? Number(s.take_profit).toFixed(5) : '--';
+      const entry = s.entry_price || 0;
+      const mkt = s.market_price || entry;
+      const qty = Number(s.position_qty || 0);
+      const direction = s.current_position === 'Long' ? 1 : -1;
+      const posPnl = direction * (mkt - entry) * qty * (s.base_per_usd || 1);
+      document.getElementById('livePosPnL').textContent = (posPnl >= 0 ? '+' : '-') + 'A$' + Math.abs(posPnl).toFixed(2);
+      document.getElementById('livePosPnL').style.color = posPnl >= 0 ? 'var(--green)' : 'var(--red)';
+      document.getElementById('liveRealPnL').textContent = 'A$0.00';
+
+      // Positions table
+      const tbody = document.getElementById('positionsTableBody');
+      tbody.innerHTML = `
+        <tr>
+          <td><b>EURUSD</b></td>
+          <td class="${direction > 0 ? 'pnl-positive' : 'pnl-negative'}">${direction > 0 ? '+' : '-'}${qty}</td>
+          <td>${entry.toFixed(5)}</td>
+          <td>${mkt.toFixed(5)}</td>
+          <td class="${posPnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${posPnl >= 0 ? '+' : '-'}A$${Math.abs(posPnl).toFixed(2)}</td>
+          <td>A$0.00</td>
+        </tr>`;
+    } else {
+      posBox.style.display = s.ibkr_connected ? 'block' : 'none';
+      document.getElementById('positionsCount').textContent = '0';
+      document.getElementById('liveDirection').textContent = 'No Position';
+      document.getElementById('liveDirection').style.color = 'var(--muted)';
+      document.getElementById('liveQty').textContent = '--';
+      document.getElementById('liveEntry').textContent = '--';
+      document.getElementById('liveMktPrice').textContent = '--';
+      document.getElementById('liveSL').textContent = '--';
+      document.getElementById('liveTP').textContent = '--';
+      document.getElementById('livePosPnL').textContent = '--';
+      document.getElementById('liveRealPnL').textContent = '--';
+      document.getElementById('positionsTableBody').innerHTML = '<tr><td colspan="6" class="empty-cell">No open positions.</td></tr>';
+    }
+
+    // Sidebar capital
+    document.getElementById('sess-capital').textContent = 'A$' + (s.allocated_capital_native || 0).toLocaleString('en-AU');
+
+  } catch (e) { /* ignore */ }
+}
+
+// ── Console output ──
+async function refreshConsole() {
+  try {
+    const resp = await fetch('/api/logs');
+    const logs = await resp.json();
+    const pre = document.getElementById('consoleOutput');
+    pre.textContent = logs.reverse().join('\n');
+    pre.scrollTop = 0;
+  } catch(e) { /* ignore */ }
+}
+
+// ── Portfolio sub-tabs ──
+function switchPortfolioTab(name) {
+  document.querySelectorAll('.portfolio-tab-content').forEach(c => c.style.display = 'none');
+  document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-portfolio-' + name).style.display = 'block';
+  document.getElementById('portTab' + (name === 'positions' ? 'Positions' : 'Trades')).classList.add('active');
+  if (name === 'trades') fetchTradeHistory();
+}
+
+// ── Fetch and render live trade history ──
+async function fetchTradeHistory() {
+  try {
+    const resp = await fetch('/api/trade-history');
+    const trades = await resp.json();
+    const tbody = document.getElementById('liveTradesTableBody');
+    if (!resp.ok || !Array.isArray(trades)) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-cell">${trades.error || 'Unable to load broker trade history.'}</td></tr>`;
+      return;
+    }
+    if (!trades || trades.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">No completed IG trades in the last 90 days.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = trades.map(t => `
+      <tr>
+        <td>${t.exit_time || ''}</td>
+        <td><span class="tag ${t.direction === 'LONG' ? 'tag-buy' : 'tag-sell'}">${t.direction || '?'}</span></td>
+        <td>${t.entry_price || ''}</td>
+        <td>${t.exit_price || ''}</td>
+        <td class="${(t.pnl || 0) >= 0 ? 'pnl-positive' : 'pnl-negative'}">${(t.pnl || 0) >= 0 ? '+' : '-'}${t.currency === 'AUD' ? 'A$' : (t.currency || '') + ' '}${Math.abs(t.pnl || 0).toFixed(2)}</td>
+        <td style="color:var(--muted)">${t.reason || 'signal'}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    document.getElementById('liveTradesTableBody').innerHTML = '<tr><td colspan="6" class="empty-cell">Trade history request failed.</td></tr>';
+  }
+}
+
+// ── Auto Trading ──
+let autoTrading = false;
+async function toggleAutoTrading() {
+  autoTrading = !autoTrading;
+  try {
+    const resp = await fetch('/api/ibkr/auto-trading', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: autoTrading}),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      if (autoTrading) {
+        document.getElementById('livePill').textContent = 'Auto Trading';
+        document.getElementById('livePill').className = 'pill ok';
+        document.getElementById('btnAutoTrade').textContent = '⏹ Stop Auto Trading';
+        document.getElementById('btnAutoTrade').className = 'cancel-button';
+      } else {
+        document.getElementById('livePill').textContent = 'Connected';
+        document.getElementById('livePill').className = 'pill ok';
+        document.getElementById('btnAutoTrade').textContent = '▶ Start Auto Trading';
+        document.getElementById('btnAutoTrade').className = 'primary-button';
+      }
+    }
+  } catch(e) { /* ignore */ }
+}
+
+// Clear cache button
+document.getElementById('resetCacheBtn').addEventListener('click', async () => {
+  try {
+    await fetch('/api/backtest?action=clear');
+    document.getElementById('summary-strip').style.display = 'none';
+    document.getElementById('kpiGrid').style.display = 'none';
+    document.getElementById('signalGrid').style.display = 'none';
+    document.getElementById('benchGrid').style.display = 'none';
+    document.getElementById('chartBox').style.display = 'none';
+    document.getElementById('tradesBox').style.display = 'none';
+    document.getElementById('dataBox').style.display = 'none';
+    document.getElementById('dataDivider').style.display = 'none';
+    document.getElementById('bt-pill').textContent = 'Idle';
+    document.getElementById('bt-pill').className = 'pill blue';
+    document.getElementById('btStatus').textContent = '';
+    if (equityChart) { equityChart.destroy(); equityChart = null; }
+    setWorkflowStep('backtest', false);
+    setWorkflowStep('review', false);
+  } catch(e) {}
+});
+
+// Auto-refresh live + console
+setInterval(() => {
+  if (document.getElementById('tab-live').classList.contains('active')) refreshLiveStatus();
+}, 5000);
+setInterval(refreshConsole, 3000);
+
+// Initial load
+loadConfig();
+refreshLiveStatus();
+refreshConsole();
+</script>
+
+</body>
+</html>

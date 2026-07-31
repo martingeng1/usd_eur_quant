@@ -107,16 +107,15 @@ def vectorized_backtest(df, signal_series, initial_capital=100000.0,
 
 
 def event_driven_backtest(df, signal_series, risk_manager=None, initial_capital=100000.0,
-                          spread=0.0001, commission=0.00005, slippage=0.0001):
+                          spread=0.0001, commission=0.00005, slippage=0.0001,
+                          signal_strength=None):
     """
-    事件驱动回测 — 模拟真实交易流程，含风控检查
+    事件驱动回测 v4 — 含阶梯式回撤、持仓时间上限、部分止盈
 
-    与向量化版本不同，这个版本：
-    1. 逐根 K 线遍历
-    2. 检查止损/止盈
-    3. 风控过滤
-    4. 滑点模拟
-    5. 只能同时持有一笔仓位
+    与v3相比新增：
+    1. 部分止盈：盈利达PARTIAL_TP_ATR时平仓50%
+    2. 持仓时间上限：超过MAX_HOLDING_BARS根K线强制平仓
+    3. check_exit传递current_bar用于时间检查
     """
     from risk.risk_manager import RiskManager
 
@@ -130,6 +129,10 @@ def event_driven_backtest(df, signal_series, risk_manager=None, initial_capital=
     low = df["low"]
     atr_series = compute_atr_series(df)
 
+    # 信号强度序列（用于动态仓位调整）
+    if signal_strength is None:
+        signal_strength = pd.Series(1.0, index=df.index, dtype=float)
+
     trades = []
     equity_curve = [initial_capital]
     in_position = False
@@ -141,14 +144,46 @@ def event_driven_backtest(df, signal_series, risk_manager=None, initial_capital=
         hi = high.iloc[i]
         lo = low.iloc[i]
         atr_val = atr_series.iloc[i]
+        strength = signal_strength.iloc[i]
 
-        # 已有持仓 → 更新移动止损 + 检查止损/止盈
+        # 更新日统计和冷静期
+        current_time = df.index[i]
+        risk_manager.update_daily(current_time)
+        risk_manager.tick_cooldown()
+
+        # 已有持仓 → 部分止盈检查 + 更新移动止损 + 检查止损/止盈/持仓时间
         if risk_manager.trade_open and in_position:
+            # v4: 部分止盈检查
+            partial_close, partial_price, partial_ratio = risk_manager.check_partial_tp(
+                hi, lo, atr_val, entry_price, 1 if entry_direction == "LONG" else -1
+            )
+            if partial_close:
+                partial_pnl = (1 if entry_direction == "LONG" else -1) * (partial_price - entry_price)
+                partial_pnl_amount = partial_pnl * partial_ratio
+                risk_manager.current_capital += partial_pnl_amount
+                risk_manager.daily_pnl += partial_pnl_amount
+                risk_manager.equity_history.append(risk_manager.current_capital)
+                # 将部分止盈记录为一笔交易
+                trades.append({
+                    "entry_time": entry_time,
+                    "exit_time": df.index[i],
+                    "direction": entry_direction,
+                    "entry_price": entry_price,
+                    "exit_price": partial_price,
+                    "pnl": partial_pnl_amount,
+                    "pnl_pct": partial_pnl_amount / risk_manager.current_capital if risk_manager.current_capital else 0,
+                    "reason": "partial_take_profit",
+                    "bars": i - entry_bar,
+                })
+                # 缩减仓位
+                risk_manager.position *= (1 - partial_ratio)
+
             # 移动止损
             risk_manager.update_trailing_stop(hi, lo, atr_val)
-            exit_signal, exit_reason, exit_price = risk_manager.check_exit(price, hi, lo)
+            # v4: 传递current_bar用于持仓时间检查
+            exit_signal, exit_reason, exit_price = risk_manager.check_exit(price, hi, lo, current_bar=i)
             if exit_signal:
-                result = risk_manager.close_trade(exit_price, exit_reason)
+                result = risk_manager.close_trade(exit_price, exit_reason, current_bar=i)
                 trades.append({
                     "entry_time": entry_time,
                     "exit_time": df.index[i],
@@ -166,7 +201,7 @@ def event_driven_backtest(df, signal_series, risk_manager=None, initial_capital=
         if sig != 0 and sig != current_signal:
             if in_position:
                 # 反转持仓：先平仓
-                result = risk_manager.close_trade(price, "signal_reverse")
+                result = risk_manager.close_trade(price, "signal_reverse", current_bar=i)
                 trades.append({
                     "entry_time": entry_time,
                     "exit_time": df.index[i],
@@ -183,7 +218,10 @@ def event_driven_backtest(df, signal_series, risk_manager=None, initial_capital=
             # 开新仓（需要确保当前无持仓）
             if not in_position:
                 entry_result = risk_manager.open_trade(
-                    int(sig), price + slippage if sig == 1 else price - slippage, atr_val
+                    int(sig),
+                    price + slippage if sig == 1 else price - slippage,
+                    atr_val,
+                    signal_strength=strength
                 )
                 if entry_result["status"] == "opened":
                     in_position = True
@@ -191,10 +229,12 @@ def event_driven_backtest(df, signal_series, risk_manager=None, initial_capital=
                     entry_price = entry_result["entry_price"]
                     entry_direction = entry_result["direction"]
                     entry_bar = i
+                    # v4: 同步entry_bar到risk_manager（用于持仓时间检查）
+                    risk_manager.entry_bar = i
 
         # 信号消失 → 平仓
         elif sig == 0 and in_position:
-            result = risk_manager.close_trade(price, "signal_flat")
+            result = risk_manager.close_trade(price, "signal_flat", current_bar=i)
             trades.append({
                 "entry_time": entry_time,
                 "exit_time": df.index[i],
@@ -213,7 +253,7 @@ def event_driven_backtest(df, signal_series, risk_manager=None, initial_capital=
 
     # 强制平仓（回测结束时仍有持仓）
     if in_position and risk_manager.trade_open:
-        result = risk_manager.close_trade(close.iloc[-1], "end_of_backtest")
+        result = risk_manager.close_trade(close.iloc[-1], "end_of_backtest", current_bar=len(df) - 1)
         trades.append({
             "entry_time": entry_time,
             "exit_time": df.index[-1],
@@ -224,9 +264,11 @@ def event_driven_backtest(df, signal_series, risk_manager=None, initial_capital=
             "pnl_pct": result["pnl_pct"],
             "reason": "end_of_backtest",
         })
-        equity_curve.append(risk_manager.current_capital)
+        # 最后一个bar的值已被强制平仓更新，覆盖equity_curve最后一个元素
+        equity_curve[-1] = risk_manager.current_capital
 
-    equity_curve = pd.Series(equity_curve[1:], index=df.index)
+    # 确保equity_curve长度与df一致：equity_curve[0]=初始资金，后续每个bar一个值
+    equity_curve = pd.Series(equity_curve[1:len(df)+1], index=df.index)
     returns = equity_curve.pct_change().fillna(0)
 
     stats = compute_statistics(returns, equity_curve, trades, initial_capital)

@@ -7,7 +7,7 @@ import numpy as np
 import joblib
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "strategies", "xgboost_eurusd.pkl")
+MODEL_PATH = os.path.join(BASE_DIR, "strategies", "xgboost_audusd.pkl")
 
 
 def build_features(df, lookback=50):
@@ -189,6 +189,11 @@ def compute_ml_signal(df, model=None, feature_cols=None, lookback=50):
     ----
     pd.Series : +1 (预测涨), -1 (预测跌), 0 (无信号/无模型)
     """
+    from config import ML_PARAMS
+
+    threshold_long = ML_PARAMS.get("signal_threshold_long", 0.60)
+    threshold_short = ML_PARAMS.get("signal_threshold_short", 0.40)
+
     # 尝试加载模型
     if model is None:
         if os.path.exists(MODEL_PATH):
@@ -211,8 +216,8 @@ def compute_ml_signal(df, model=None, feature_cols=None, lookback=50):
     prob_up = proba[:, 1]  # 涨的概率
 
     signal = pd.Series(0, index=df.index, dtype=float)
-    signal[prob_up > 0.55] = 1.0
-    signal[prob_up < 0.45] = -1.0
+    signal[prob_up > threshold_long] = 1.0
+    signal[prob_up < threshold_short] = -1.0
 
     return signal
 

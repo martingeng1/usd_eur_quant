@@ -50,14 +50,8 @@ def compute_momentum_signal(df, params=None):
     death_cross = (macd_line < signal_line) & (macd_line.shift(1) >= signal_line.shift(1))
     final_signal[death_cross] = -1.0
 
-    # 持续信号：维持之前的方向（仅在无新交叉时）
-    for i in range(1, len(final_signal)):
-        if final_signal.iloc[i] == 0:
-            # 如果在 MACD 线上方，保持多头信号
-            if macd_line.iloc[i] > signal_line.iloc[i]:
-                final_signal.iloc[i] = 1.0
-            elif macd_line.iloc[i] < signal_line.iloc[i]:
-                final_signal.iloc[i] = -1.0
+    # v7改进：不再填充持续性信号，仅在金叉/死叉时输出信号
+    # 这大幅减少了交易频率，避免在MACD横盘时反复翻转
 
     return final_signal
 
