@@ -91,9 +91,12 @@ class GoldMultiMarketMacroCTA(QCAlgorithm):
         price = float(self.securities[mapped].price); atr_pct = float(self.states[name]["atr"].current.value) / continuous_price
         if price <= 0: return
         distance = price * 2 * atr_pct; multiplier = float(self.securities[mapped].symbol_properties.contract_multiplier)
-        # Equal per-market risk, with one contract maximum per market.
-        qty = min(1, int(math.floor(self.portfolio.total_portfolio_value * .0012 / max(distance * multiplier, 1))))
-        if qty < 1: return
+        # The previous 0.12% risk budget was applied to a *single* futures
+        # contract.  For GC/CL/ES that made qty=0 almost every time, so the
+        # log showed thousands of signals but only EUR trades.  Use one
+        # contract per market (the portfolio cap is still one contract) and
+        # reserve a conservative 10% of equity for each new position.
+        qty = 1
         self.market_order(mapped, direction * qty, tag=f"{name} macro trend")
         self.states[name]["position"] = {"symbol": mapped, "direction": direction, "entry": price, "stop": distance, "days": 0}; self.counts["entries"] += 1; self.market_entries[name] += 1
 
