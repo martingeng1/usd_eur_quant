@@ -5,7 +5,9 @@ import math
 
 class GoldMacroFeatures(PythonData):
     """Point-in-time COT, GLD-flow and FRED features from a public raw CSV URL."""
-    FEATURES_URL = "https://raw.githubusercontent.com/martingeng1/usd_eur_quant/codex/quantconnect-macro-features/data/quantconnect_gold_features.csv"
+    # Set this to a public GitHub Raw URL. QuantConnect Free cannot read a
+    # private GitHub repository or use Object Store.
+    FEATURES_URL = "https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_PUBLIC_REPOSITORY/main/quantconnect_gold_features.csv"
     FIELDS = ["cot_net_z", "cot_change_z", "gld_flow_z", "usd_return_20d",
               "real_yield_change_20d", "vix_z"]
 
