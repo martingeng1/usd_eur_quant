@@ -44,6 +44,7 @@ class GoldMultiMarketMacroCTA(QCAlgorithm):
             self.consolidate(future.symbol, timedelta(days=1), lambda bar, n=name: self.on_daily(n, bar))
         self.feature_symbol = self.add_data(GoldMacroFeatures, "GOLD_FEATURES", Resolution.DAILY).symbol
         self.features = None; self.counts = {"no_macro": 0, "signals": 0, "entries": 0, "exits": 0}
+        self.market_entries = {name: 0 for name in self.markets}
         self.set_warm_up(timedelta(days=300))
 
     def on_data(self, data):
@@ -52,7 +53,9 @@ class GoldMultiMarketMacroCTA(QCAlgorithm):
 
     def on_daily(self, name, bar):
         s = self.states[name]; bars = s["bars"]
-        if self.is_warming_up or not s["atr"].is_ready or bars.count < 55:
+        # The signal only needs a 10-bar breakout.  Requiring 55 bars here
+        # unnecessarily suppresses signals after contract rollovers.
+        if self.is_warming_up or not s["atr"].is_ready or bars.count < 20:
             bars.add(bar); return
         self._manage(name, bar)
         if s["position"] is not None or self._market_exposure(name):
@@ -64,9 +67,12 @@ class GoldMultiMarketMacroCTA(QCAlgorithm):
         # allowed independently; diversification is the risk-control layer.
         if name in ("gold", "silver", "copper", "crude", "equity") and macro == 0:
             bars.add(bar); return
-        direction = 1 if bar.close > max(float(bars[i].high) for i in range(20)) else -1 if bar.close < min(float(bars[i].low) for i in range(20)) else 0
-        if direction == 0 or s["ema20"].current.value <= s["ema60"].current.value and direction > 0 or s["ema20"].current.value >= s["ema60"].current.value and direction < 0:
+        lookback = min(10, bars.count)
+        direction = 1 if bar.close > max(float(bars[i].high) for i in range(lookback)) else -1 if bar.close < min(float(bars[i].low) for i in range(lookback)) else 0
+        trend_conflict = (direction > 0 and s["ema20"].current.value <= s["ema60"].current.value) or (direction < 0 and s["ema20"].current.value >= s["ema60"].current.value)
+        if direction == 0 or trend_conflict:
             bars.add(bar); return
+        self.counts["signals"] += 1
         if name in ("gold", "silver", "copper", "crude", "equity") and direction != macro:
             bars.add(bar); return
         self._enter(name, direction, float(bar.close)); bars.add(bar)
@@ -75,7 +81,9 @@ class GoldMultiMarketMacroCTA(QCAlgorithm):
         f = self.features
         long_score = sum([f["gld_flow_z"] > 0, f["usd_return_20d"] < 0, f["real_yield_change_20d"] < 0, f["vix_z"] < 1.5, f["cot_change_z"] > -1])
         short_score = sum([f["gld_flow_z"] < 0, f["usd_return_20d"] > 0, f["real_yield_change_20d"] > 0, f["vix_z"] < 1.5, f["cot_change_z"] < 1])
-        return 1 if long_score >= 4 and f["cot_net_z"] < 1.5 else -1 if short_score >= 4 and f["cot_net_z"] > -1.5 else 0
+        # A 3-of-5 confirmation retains the risk filter while avoiding the
+        # near-zero signal frequency seen with the former 4-of-5 gate.
+        return 1 if long_score >= 3 and f["cot_net_z"] < 2.0 else -1 if short_score >= 3 and f["cot_net_z"] > -2.0 else 0
 
     def _enter(self, name, direction, continuous_price):
         future = self.markets[name]; mapped = future.mapped
@@ -87,7 +95,7 @@ class GoldMultiMarketMacroCTA(QCAlgorithm):
         qty = min(1, int(math.floor(self.portfolio.total_portfolio_value * .0012 / max(distance * multiplier, 1))))
         if qty < 1: return
         self.market_order(mapped, direction * qty, tag=f"{name} macro trend")
-        self.states[name]["position"] = {"symbol": mapped, "direction": direction, "entry": price, "stop": distance, "days": 0}; self.counts["entries"] += 1
+        self.states[name]["position"] = {"symbol": mapped, "direction": direction, "entry": price, "stop": distance, "days": 0}; self.counts["entries"] += 1; self.market_entries[name] += 1
 
     def _manage(self, name, bar):
         s = self.states[name]; p = s["position"]
@@ -103,4 +111,4 @@ class GoldMultiMarketMacroCTA(QCAlgorithm):
     def _market_exposure(self, name):
         root = self.roots[name]
         return any(sec.invested and sym.value.replace("/", "").startswith(root) for sym, sec in self.securities.items())
-    def on_end_of_algorithm(self): self.debug(f"CTA COUNTS: {self.counts}")
+    def on_end_of_algorithm(self): self.debug(f"CTA COUNTS: {self.counts}; MARKET ENTRIES: {self.market_entries}")
