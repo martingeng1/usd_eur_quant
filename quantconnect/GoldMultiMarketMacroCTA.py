@@ -26,7 +26,7 @@ class GoldMultiMarketMacroCTA(QCAlgorithm):
         specs = {
             "gold": Futures.Metals.GOLD, "silver": Futures.Metals.SILVER,
             "copper": Futures.Metals.COPPER, "crude": Futures.Energy.CRUDE_OIL_WTI,
-            "equity": Futures.Indices.SP_500_E_MINI, "rates": Futures.Financials.Y10_TREASURY_NOTE,
+            "equity": Futures.Indices.SP_500_E_MINI, "rates": Futures.Financials.Y_10_TREASURY_NOTE,
             "euro": Futures.Currencies.EUR,
         }
         self.markets = {}; self.states = {}
