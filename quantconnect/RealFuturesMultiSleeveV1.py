@@ -6,9 +6,9 @@ import math
 class RealFuturesMultiSleeveV1(QCAlgorithm):
     """35-market managed-futures prototype with independent return sleeves.
 
-    This uses real continuous futures subscriptions. Trend uses a backwards-
-    ratio series, while carry compares RAW front and first-deferred mappings.
-    Orders are always sent to the current mapped front contract.
+    Trend uses a backwards-ratio continuous series. Carry reads the actual
+    nearest and next eligible contracts from each FutureChain, whose prices
+    remain RAW settlement prices. Orders are sent only to mapped contracts.
     """
     def initialize(self):
         self.set_start_date(2012, 1, 1)
@@ -79,22 +79,17 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
         self.states = {}
         self.group_of = {}
         self.roots = {}
+        self.held_symbols = set()
         for name, (ticker, group, has_carry) in specs.items():
             trend = self.add_future(ticker, Resolution.DAILY, extended_market_hours=True,
                 data_mapping_mode=DataMappingMode.OPEN_INTEREST,
                 data_normalization_mode=DataNormalizationMode.BACKWARDS_RATIO,
                 contract_depth_offset=0)
-            trend.set_filter(0, 180)
-            front = self.add_future(ticker, Resolution.DAILY, extended_market_hours=True,
-                data_mapping_mode=DataMappingMode.OPEN_INTEREST,
-                data_normalization_mode=DataNormalizationMode.RAW,
-                contract_depth_offset=0)
-            far = self.add_future(ticker, Resolution.DAILY, extended_market_hours=True,
-                data_mapping_mode=DataMappingMode.OPEN_INTEREST,
-                data_normalization_mode=DataNormalizationMode.RAW,
-                contract_depth_offset=1)
-            front.set_filter(0, 180); far.set_filter(0, 360)
-            self.markets[name] = {"trend": trend, "front": front, "far": far, "has_carry": has_carry}
+            # The wider chain includes both near and deferred raw contracts
+            # used by the carry sleeve. This avoids duplicate continuous
+            # subscriptions for one root market.
+            trend.set_filter(0, 360)
+            self.markets[name] = {"trend": trend, "has_carry": has_carry}
             self.states[name] = {"closes": RollingWindow[float](260), "carry": None}
             self.group_of[name] = group
             self.roots[name] = ticker
@@ -116,22 +111,34 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
                 if price > 0:
                     state["closes"].add(price)
             if market["has_carry"]:
-                front_symbol, far_symbol = market["front"].symbol, market["far"].symbol
-                if front_symbol in data.bars and far_symbol in data.bars:
-                    front = float(data.bars[front_symbol].close)
-                    far = float(data.bars[far_symbol].close)
-                    if front > 0 and far > 0:
-                        state["carry"] = math.log(far / front)
+                # FutureChain contracts are individual, unadjusted futures.
+                # Selecting the two nearest valid expiries makes this a true
+                # front/deferred curve factor, not an ETF approximation.
+                chain = data.future_chains.get(trend_symbol)
+                if chain:
+                    contracts = sorted(
+                        [contract for contract in chain
+                         if contract.last_price > 0 and contract.expiry > self.time],
+                        key=lambda contract: contract.expiry)
+                    if len(contracts) >= 2:
+                        front = float(contracts[0].last_price)
+                        far = float(contracts[1].last_price)
+                        if front > 0 and far > 0:
+                            state["carry"] = math.log(far / front)
 
     def rebalance(self):
         if self.is_warming_up:
             return
         self.peak = max(self.peak, self.portfolio.total_portfolio_value)
         dd = 1.0 - self.portfolio.total_portfolio_value / max(self.peak, 1.0)
-        slots = 6 if dd < 0.10 else 3 if dd < 0.15 else 0
-        if slots == 0:
+        # A permanent cash stop cannot recover because equity cannot make a
+        # new high in cash. This is a graduated circuit: it cuts risk from six
+        # markets to four, two, then one while retaining a controlled path to
+        # recovery and preserving a hard 25% emergency stop.
+        slots = 6 if dd < 0.08 else 4 if dd < 0.12 else 2 if dd < 0.20 else 1
+        if dd >= 0.25:
             self.counts["risk_off"] += 1
-            self._liquidate_all("portfolio drawdown circuit")
+            self._liquidate_all("25 percent emergency circuit")
             return
 
         rows = []
@@ -187,6 +194,7 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
                 self.counts["volatility_skipped"] += 1
                 continue
             self.market_order(mapped, direction * quantity, tag="{} {}".format(leg, name))
+            self.held_symbols.add(mapped)
             self.counts["orders"] += 1
         self.counts["selected"] += len(selected)
 
@@ -257,9 +265,13 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
         return 1 if per_contract_daily_risk <= 1.5 * risk_budget else 0
 
     def _liquidate_all(self, reason):
-        for symbol, security in self.securities.items():
-            if security.invested:
+        # Never liquidate a continuous *canonical* subscription. It is a
+        # data symbol, not the integer-lot traded contract, and attempting to
+        # target it is what produces fractional-lot order warnings.
+        for symbol in list(self.held_symbols):
+            if symbol in self.securities and self.securities[symbol].invested:
                 self.liquidate(symbol, tag=reason)
+            self.held_symbols.discard(symbol)
 
     def _record_oos_equity(self):
         if self.is_warming_up:
