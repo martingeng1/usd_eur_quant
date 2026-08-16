@@ -38,7 +38,7 @@ class GlobalDualMomentumV1(QCAlgorithm):
         self.oos_equity = {label: {"start": None, "end": None}
                            for label, _, _ in self.oos_blocks}
         self.counts = {"rebalance_days": 0, "eligible": 0, "selected": 0,
-                       "risk_reduced": 0, "cash_months": 0}
+                       "risk_reduced": 0, "cash_months": 0, "tiny_target_skips": 0}
         # The first market day of a new month only uses already completed
         # daily bars from the previous month, avoiding same-bar look-ahead.
         self.schedule.on(self.date_rules.month_start(), self.time_rules.at(10, 0), self.rebalance)
@@ -97,8 +97,16 @@ class GlobalDualMomentumV1(QCAlgorithm):
             weights[self.defensive_ticker] = max(0.0, 1.0 - sum(weights.values()))
             self.counts["selected"] += len(selected)
 
-        targets = [PortfolioTarget(self.symbols[ticker], weight)
-                   for ticker, weight in weights.items()]
+        # Floating-point arithmetic can leave a 1e-11 residual allocation.
+        # LEAN correctly rejects it below its minimum target threshold; omit
+        # it ourselves so the terminal stays clean and every submitted target
+        # represents a meaningful allocation.
+        targets = []
+        for ticker, weight in weights.items():
+            if abs(weight) < 1e-6:
+                self.counts["tiny_target_skips"] += 1
+                continue
+            targets.append(PortfolioTarget(self.symbols[ticker], weight))
         self.set_holdings(targets, liquidate_existing_holdings=True)
 
     def _record_oos(self):
