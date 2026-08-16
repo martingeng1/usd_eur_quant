@@ -49,12 +49,11 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
         self.learning_rate = 0.020
         self.l2 = 0.0005
         self.label_horizon = 24
-        self.rebalance_band = 0.05
         self.counts = {"labels": 0, "rebalance_days": 0, "candidates": 0,
-                       "selected": 0, "risk_off_days": 0, "band_skips": 0}
+                       "selected": 0, "risk_off_days": 0}
         # Rebalance once weekly, avoiding daily prediction-driven turnover.
         self.schedule.on(self.date_rules.week_start(self.symbols["SPY"]),
-                         self.time_rules.at(12, 30), self.rebalance)
+                         self.time_rules.at(14, 30), self.rebalance)
         # Preserve native hourly data for hourly indicators and model labels.
         self.set_warm_up(timedelta(days=180))
 
@@ -128,14 +127,7 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
             weight = min(0.40, 0.90 * (1.0 / atr_pct) / total_inverse_vol)
             targets[symbol] = direction * weight
         for symbol in self.states:
-            target = targets.get(symbol, 0.0)
-            current = self.portfolio[symbol].holdings_value / max(self.portfolio.total_portfolio_value, 1.0)
-            # Ignore routine drift below 5% of equity. It does not materially
-            # alter the risk budget but greatly reduces ETF turnover and fees.
-            if abs(target - current) >= self.rebalance_band:
-                self.set_holdings(symbol, target, tag="AI regime rebalance")
-            else:
-                self.counts["band_skips"] += 1
+            self.set_holdings(symbol, targets.get(symbol, 0.0), tag="AI regime rebalance")
         self.counts["selected"] += len(chosen)
 
     def _ready(self, state):
