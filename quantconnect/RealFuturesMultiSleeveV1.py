@@ -80,6 +80,7 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
         self.group_of = {}
         self.roots = {}
         self.held_symbols = set()
+        self.emergency_until = datetime.min
         for name, (ticker, group, has_carry) in specs.items():
             trend = self.add_future(ticker, Resolution.DAILY, extended_market_hours=True,
                 data_mapping_mode=DataMappingMode.OPEN_INTEREST,
@@ -118,19 +119,33 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
                 if chain:
                     contracts = sorted(
                         [contract for contract in chain
-                         if contract.last_price > 0 and contract.expiry > self.time],
+                         if contract.last_price > 0
+                         and contract.expiry > self.time + timedelta(days=20)],
                         key=lambda contract: contract.expiry)
                     if len(contracts) >= 2:
-                        front = float(contracts[0].last_price)
-                        far = float(contracts[1].last_price)
-                        if front > 0 and far > 0:
-                            state["carry"] = math.log(far / front)
+                        front_contract = contracts[0]
+                        # Skip the immediately adjacent contract if necessary.
+                        # A 45-day spread measures the investable curve, rather
+                        # than a delivery-week technical dislocation.
+                        far_contract = next(
+                            (contract for contract in contracts[1:]
+                             if (contract.expiry - front_contract.expiry).days >= 45), None)
+                        if far_contract is not None:
+                            front = float(front_contract.last_price)
+                            far = float(far_contract.last_price)
+                            days = (far_contract.expiry - front_contract.expiry).days
+                            if front > 0 and far > 0 and days > 0:
+                                state["carry"] = math.log(far / front) * 365.0 / days
 
     def rebalance(self):
         if self.is_warming_up:
             return
         self.peak = max(self.peak, self.portfolio.total_portfolio_value)
         dd = 1.0 - self.portfolio.total_portfolio_value / max(self.peak, 1.0)
+        if self.time < self.emergency_until:
+            self.counts["risk_off"] += 1
+            self._liquidate_all("emergency circuit cooldown")
+            return
         # A permanent cash stop cannot recover because equity cannot make a
         # new high in cash. This is a graduated circuit: it cuts risk from six
         # markets to four, two, then one while retaining a controlled path to
@@ -139,6 +154,11 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
         if dd >= 0.25:
             self.counts["risk_off"] += 1
             self._liquidate_all("25 percent emergency circuit")
+            # A circuit breaker should not create a permanent all-cash
+            # backtest. After one quarter it resets the high-water reference
+            # and allows one risk slot; recovery must still be earned.
+            self.emergency_until = self.time + timedelta(days=90)
+            self.peak = self.portfolio.total_portfolio_value
             return
 
         rows = []
@@ -149,9 +169,17 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
                 continue
             r1, r3, r12 = closes[0] / closes[20] - 1.0, closes[0] / closes[63] - 1.0, closes[0] / closes[252] - 1.0
             trend = (self._sign(r1) + self._sign(r3) + self._sign(r12)) / 3.0
+            daily_vol = self._daily_volatility(closes, 60)
+            if daily_vol <= 0:
+                continue
+            # Do not rank all unanimous trends as equal. This comparable
+            # strength statistic favours the largest move per unit of recent
+            # realised volatility across the full futures universe.
+            trend_strength = abs(0.20 * r1 + 0.30 * r3 + 0.50 * r12) / daily_vol
             ret63 = r3
             group_returns.setdefault(self.group_of[name], []).append(ret63)
-            rows.append({"name": name, "trend": trend, "ret63": ret63, "carry": state["carry"]})
+            rows.append({"name": name, "trend": trend, "trend_strength": trend_strength,
+                         "ret63": ret63, "carry": state["carry"]})
 
         # Keep the three sources independent.  Their candidates are selected
         # independently before de-duplication, so a good carry signal cannot
@@ -166,7 +194,7 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
             self.counts["ready"] += 1
             if row["trend"] != 0:
                 self.counts["trend"] += 1
-                trend_candidates.append((abs(row["trend"]), row["name"], row["trend"], "trend"))
+                trend_candidates.append((row["trend_strength"], row["name"], row["trend"], "trend"))
             # A positive far-minus-front curve is contango.  The carry sleeve
             # is therefore short contango / long backwardation.  It is only
             # used where a physically meaningful commodity curve exists.
@@ -193,7 +221,7 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
             if quantity < 1:
                 self.counts["volatility_skipped"] += 1
                 continue
-            self.market_order(mapped, direction * quantity, tag="{} {}".format(leg, name))
+            self.market_order(mapped, self._sign(direction) * quantity, tag="{} {}".format(leg, name))
             self.held_symbols.add(mapped)
             self.counts["orders"] += 1
         self.counts["selected"] += len(selected)
@@ -263,6 +291,17 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
         if quantity >= 1:
             return quantity
         return 1 if per_contract_daily_risk <= 1.5 * risk_budget else 0
+
+    @staticmethod
+    def _daily_volatility(closes, lookback):
+        if closes.count < lookback + 1:
+            return 0.0
+        returns = [closes[i] / closes[i + 1] - 1.0 for i in range(lookback)
+                   if closes[i + 1] > 0]
+        if len(returns) < lookback * 0.75:
+            return 0.0
+        mean = sum(returns) / len(returns)
+        return math.sqrt(sum((value - mean) ** 2 for value in returns) / len(returns))
 
     def _liquidate_all(self, reason):
         # Never liquidate a continuous *canonical* subscription. It is a
