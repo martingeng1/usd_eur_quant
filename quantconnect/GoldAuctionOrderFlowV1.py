@@ -157,14 +157,16 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         return signed > 0 and body < .65 * rng and bar.close < bar.high - .55 * rng
 
     def _confirmation(self, bar, direction):
-        # on_five adds the current bar before confirmation; compare only
-        # against completed bars preceding it, never against itself.
-        if self.m5.count < 4:
+        if self.setup is None or self.signed_volume.count < 1:
             return False
-        prior_high = max(float(self.m5[i].high) for i in range(1, 4))
-        prior_low = min(float(self.m5[i].low) for i in range(1, 4))
         signed = self.signed_volume[0]
-        return (direction > 0 and bar.close > prior_high and signed > 0) or (direction < 0 and bar.close < prior_low and signed < 0)
+        atr = float(self.atr_5.current.value)
+        # After the failed second test, require a directional close and a
+        # same-direction signed-volume proxy.  A full 3-bar breakout was too
+        # restrictive and produced zero trades despite valid setups.
+        if direction > 0:
+            return bar.close > self.setup["extreme"] + .10 * atr and bar.close > bar.open and signed > 0
+        return bar.close < self.setup["extreme"] - .10 * atr and bar.close < bar.open and signed < 0
 
     def _enter(self, direction, bar):
         mapped = self.future.mapped
