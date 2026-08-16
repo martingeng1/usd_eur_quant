@@ -42,6 +42,7 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
                 "atr": self.atr(symbol, 20, MovingAverageType.WILDERS, Resolution.HOUR),
                 "closes": RollingWindow[float](80),
                 "volumes": RollingWindow[float](30),
+                "outcomes": RollingWindow[float](90),
                 "pending": [], "weights": [0.0] * 6, "bias": 0.0,
                 "labels": 0, "feature": None, "price": 0.0,
             }
@@ -50,7 +51,7 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
         self.l2 = 0.0005
         self.label_horizon = 24
         self.counts = {"labels": 0, "rebalance_days": 0, "candidates": 0,
-                       "selected": 0, "risk_off_days": 0}
+                       "calibration_rejected": 0, "selected": 0, "risk_off_days": 0}
         # Rebalance once weekly, avoiding daily prediction-driven turnover.
         self.schedule.on(self.date_rules.week_start(self.symbols["SPY"]),
                          self.time_rules.at(14, 30), self.rebalance)
@@ -71,7 +72,8 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
                 if feature is not None:
                     state["feature"] = feature
                     state["price"] = price
-                    state["pending"].append({"price": price, "feature": feature, "age": 0})
+                    state["pending"].append({"price": price, "feature": feature,
+                                              "probability": self._predict(state, feature), "age": 0})
             state["closes"].add(price)
             state["volumes"].add(float(bar.volume))
 
@@ -84,6 +86,10 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
             if state["labels"] < 1000 or state["feature"] is None:
                 continue
             probability = self._predict(state, state["feature"])
+            outcomes = state["outcomes"]
+            if outcomes.count < 90 or sum(outcomes[i] for i in range(outcomes.count)) / outcomes.count < 0.52:
+                self.counts["calibration_rejected"] += 1
+                continue
             # AI is a risk filter, not the directional engine. Long-only ETF
             # exposure avoids the poor short-side behavior of the V1 model.
             if probability < 0.55:
@@ -158,6 +164,10 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
                 remaining.append(item)
                 continue
             label = 1.0 if current_price > item["price"] else 0.0
+            # Evaluate the probability produced at signal time, before this
+            # outcome was known. This is a rolling, leakage-free calibration.
+            predicted_up = item["probability"] >= 0.5
+            state["outcomes"].add(1.0 if predicted_up == (label > 0.5) else 0.0)
             prediction = self._predict(state, item["feature"])
             error = label - prediction
             for i, value in enumerate(item["feature"]):
