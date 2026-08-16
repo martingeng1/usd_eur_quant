@@ -78,8 +78,13 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         if self.position is not None or self.trades_today >= 2 or self.losses_today >= 2:
             return
 
-        # Article focuses on the liquid New York opening auction.
-        if not (self.time.hour == 9 and self.time.minute >= 30 or self.time.hour == 10):
+        # Gold's primary US liquidity arrives at the COMEX open (08:20 ET),
+        # not the 09:30 equity open used in the article's MNQ example.
+        # Keep the window finite to avoid thin midday order-flow proxies.
+        in_gold_open = (self.time.hour == 8 and self.time.minute >= 20) or \
+                       self.time.hour in (9, 10) or \
+                       (self.time.hour == 11 and self.time.minute < 30)
+        if not in_gold_open:
             self.setup = None
             return
 
@@ -154,7 +159,9 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         rng = max(float(bar.high - bar.low), 1e-8)
         body = abs(float(bar.close - bar.open))
         # High effort, but small result and rejection wick.
-        if float(bar.volume) < 1.25 * avg_vol or abs(signed) < 1.5 * max(avg_abs, 1):
+        # The former thresholds were calibrated to a much more active index
+        # future and left only 13 candidates across 14 years of MGC data.
+        if float(bar.volume) < 1.10 * avg_vol or abs(signed) < 1.10 * max(avg_abs, 1):
             return False
         if direction > 0:
             return signed < 0 and body < .65 * rng and bar.close > bar.low + .55 * rng
