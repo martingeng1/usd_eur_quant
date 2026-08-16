@@ -1,5 +1,5 @@
 from AlgorithmImports import *
-from datetime import timedelta
+from datetime import datetime, timedelta
 import math
 
 
@@ -20,6 +20,17 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
         # order quantity calculation below converts it to each contract's
         # estimated daily dollar risk; it is not a performance target.
         self.target_portfolio_volatility = 0.15
+        # Parameters are fixed before the out-of-sample windows below.  These
+        # records make it possible to reject the framework if one or more
+        # independent periods fail, rather than selecting a flattering total.
+        self.oos_blocks = [
+            ("2017-2019", datetime(2017, 1, 1), datetime(2019, 12, 31)),
+            ("2020-2021", datetime(2020, 1, 1), datetime(2021, 12, 31)),
+            ("2022-2023", datetime(2022, 1, 1), datetime(2023, 12, 31)),
+            ("2024-2025", datetime(2024, 1, 1), datetime(2025, 12, 31)),
+        ]
+        self.oos_equity = {label: {"start": None, "end": None}
+                           for label, _, _ in self.oos_blocks}
 
         specs = {
             # Metals
@@ -93,6 +104,7 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
                        "selected": 0, "orders": 0, "mapped_missing": 0,
                        "volatility_skipped": 0, "risk_off": 0}
         self.schedule.on(self.date_rules.month_start(), self.time_rules.at(13, 0), self.rebalance)
+        self.schedule.on(self.date_rules.month_end(), self.time_rules.at(15, 30), self._record_oos_equity)
         self.set_warm_up(timedelta(days=400))
 
     def on_data(self, data):
@@ -249,9 +261,29 @@ class RealFuturesMultiSleeveV1(QCAlgorithm):
             if security.invested:
                 self.liquidate(symbol, tag=reason)
 
+    def _record_oos_equity(self):
+        if self.is_warming_up:
+            return
+        value = self.portfolio.total_portfolio_value
+        now = self.time
+        for label, start, end in self.oos_blocks:
+            if start <= now <= end:
+                record = self.oos_equity[label]
+                if record["start"] is None:
+                    record["start"] = value
+                record["end"] = value
+
     @staticmethod
     def _sign(value):
         return 1 if value > 0 else -1 if value < 0 else 0
 
     def on_end_of_algorithm(self):
+        self._record_oos_equity()
+        oos_returns = {}
+        for label, record in self.oos_equity.items():
+            if record["start"] is not None and record["end"] is not None:
+                oos_returns[label] = round(100.0 * (record["end"] / record["start"] - 1.0), 2)
+            else:
+                oos_returns[label] = None
         self.debug("REAL FUTURES COUNTS: {}".format(self.counts))
+        self.debug("FIXED-PARAMETER OOS RETURNS (%): {}".format(oos_returns))
