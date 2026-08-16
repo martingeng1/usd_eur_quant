@@ -49,6 +49,10 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
 
     def on_hour(self, bar):
         price = float(bar.close)
+        # Continuous futures can emit a zero-valued bar during mapping gaps.
+        # It is neither a valid feature nor a valid training label.
+        if price <= 0:
+            return
         self._train_matured_labels(price)
         if self.is_warming_up or not self._ready():
             self.closes.add(price)
@@ -61,6 +65,10 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
 
         self._manage(price)
         feature = self._features(bar)
+        if feature is None:
+            self.closes.add(price)
+            self.volumes.add(float(bar.volume))
+            return
         probability = self._predict(feature)
         # Store today's feature only after its prediction.  It cannot affect
         # the model until the 12-hour outcome exists.
@@ -87,6 +95,8 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
 
     def _features(self, bar):
         price = float(bar.close)
+        if self.closes[0] <= 0 or self.closes[5] <= 0:
+            return None
         atr_pct = max(float(self.atr.current.value) / max(price, 1e-8), 1e-6)
         ret_1 = (price / self.closes[0] - 1.0) / atr_pct
         ret_6 = (price / self.closes[5] - 1.0) / atr_pct
