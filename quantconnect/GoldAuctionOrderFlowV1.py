@@ -18,7 +18,10 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         self.settings.seed_initial_prices = True
 
         self.future = self.add_future(
-            Futures.Metals.GOLD, Resolution.MINUTE,
+            # Use Micro Gold (MGC): the article's setup is intraday and a
+            # standard GC contract makes a logical 5-minute stop too large
+            # for the portfolio's per-trade risk limit.
+            Futures.Metals.MICRO_GOLD, Resolution.MINUTE,
             extended_market_hours=True,
             data_mapping_mode=DataMappingMode.OPEN_INTEREST,
             data_normalization_mode=DataNormalizationMode.BACKWARDS_RATIO,
@@ -41,7 +44,8 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         self.session_date = None
         self.counts = {"hour_bars": 0, "five_bars": 0, "context": 0,
                        "effort_failures": 0, "second_tests": 0,
-                       "entries": 0, "exits": 0}
+                       "entry_candidates": 0, "not_tradable": 0,
+                       "risk_rejected": 0, "entries": 0, "exits": 0}
         self.set_warm_up(timedelta(days=90))
 
     def on_hour(self, bar):
@@ -169,8 +173,10 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         return bar.close < self.setup["extreme"] - .10 * atr and bar.close < bar.open and signed < 0
 
     def _enter(self, direction, bar):
+        self.counts["entry_candidates"] += 1
         mapped = self.future.mapped
         if mapped is None or mapped not in self.securities or not self.securities[mapped].is_tradable:
+            self.counts["not_tradable"] += 1
             return
         price = float(self.securities[mapped].price)
         atr = float(self.atr_5.current.value)
@@ -182,6 +188,7 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         # Micro-style risk cap; one contract maximum keeps futures exposure bounded.
         multiplier = float(self.securities[mapped].symbol_properties.contract_multiplier)
         if risk * multiplier > self.portfolio.total_portfolio_value * .025:
+            self.counts["risk_rejected"] += 1
             return
         self.market_order(mapped, direction, tag="auction effort failure")
         self.position = {"symbol": mapped, "direction": direction, "entry": price,
