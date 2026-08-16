@@ -7,8 +7,9 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
     """Diversified ETF portfolio with per-market online AI risk filters.
 
     The model is trained only after each 24-hour outcome is observable. It
-    uses AI as a risk filter and ranks established trends weekly, limiting
-    gross exposure to 50% across at most two independent positions.
+    uses AI as a risk filter and ranks established trends weekly. Assets are
+    selected by economic sleeve so the portfolio does not fill with correlated
+    equity or commodity exposures.
     """
     def initialize(self):
         self.set_start_date(2012, 1, 1)
@@ -16,7 +17,17 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
         self.set_cash(250000)
         self.set_time_zone(TimeZones.NEW_YORK)
 
-        tickers = ["GLD", "SLV", "USO", "TLT", "SPY", "UUP"]
+        sleeves = {
+            "metals": ["GLD", "SLV"],
+            "energy": ["USO", "XLE"],
+            "rates": ["TLT"],
+            "equity_us": ["SPY", "XLF", "XLV"],
+            "equity_global": ["EEM", "EFA"],
+            "usd": ["UUP"],
+            "real_assets": ["VNQ"],
+        }
+        self.sleeve_of = {ticker: sleeve for sleeve, members in sleeves.items() for ticker in members}
+        tickers = list(self.sleeve_of)
         self.symbols = {}
         self.states = {}
         for ticker in tickers:
@@ -94,7 +105,15 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
 
         self.counts["candidates"] += len(ranked)
         ranked.sort(key=lambda x: x[0], reverse=True)
-        chosen = ranked[:2]
+        # Keep the best asset from each economic sleeve, then select the top
+        # three independent sleeves rather than three highly correlated ETFs.
+        sleeve_best = {}
+        for row in ranked:
+            ticker = next(name for name, sym in self.symbols.items() if sym == row[1])
+            sleeve = self.sleeve_of[ticker]
+            if sleeve not in sleeve_best:
+                sleeve_best[sleeve] = row
+        chosen = sorted(sleeve_best.values(), key=lambda x: x[0], reverse=True)[:3]
         if not chosen:
             self.counts["risk_off_days"] += 1
             for symbol in self.states:
@@ -105,7 +124,7 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
         total_inverse_vol = sum(1.0 / row[3] for row in chosen)
         targets = {}
         for _, symbol, direction, atr_pct in chosen:
-            weight = min(0.30, 0.50 * (1.0 / atr_pct) / total_inverse_vol)
+            weight = min(0.40, 0.90 * (1.0 / atr_pct) / total_inverse_vol)
             targets[symbol] = direction * weight
         for symbol in self.states:
             self.set_holdings(symbol, targets.get(symbol, 0.0), tag="AI regime rebalance")
