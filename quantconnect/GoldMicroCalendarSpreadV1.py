@@ -49,9 +49,15 @@ class GoldMicroCalendarSpreadV1(QCAlgorithm):
             self.day = self.time.date()
             self.day_start_value = self.portfolio.total_portfolio_value
 
-        chain = data.future_chains.get(self.gold.symbol)
-        if chain:
-            self._select_pair(chain)
+        # Contract selection is an infrequent roll operation. Re-selecting
+        # from every minute's FutureChain resets the 5-minute spread history
+        # and prevents the model from ever becoming ready.
+        needs_roll = (self.near is None or self.near_expiry is None or
+                      self.time >= self.near_expiry - timedelta(days=15))
+        if needs_roll:
+            chain = data.future_chains.get(self.gold.symbol)
+            if chain:
+                self._select_pair(chain)
 
         if self.near is None or self.far is None:
             return
