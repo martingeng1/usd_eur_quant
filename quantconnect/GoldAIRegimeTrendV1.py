@@ -45,7 +45,7 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         self.day = None
         self.trades_today = 0
         self.counts = {"labels": 0, "model_signals": 0, "trend_rejected": 0,
-                       "risk_rejected": 0, "untracked_exposure": 0,
+                       "risk_rejected": 0, "exposure_blocked": 0,
                        "entries": 0, "exits": 0}
         self.set_warm_up(timedelta(days=120))
 
@@ -66,14 +66,6 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
             self.trades_today = 0
 
         self._manage(price)
-        # Never stack mapped contracts during a rollover or after an order
-        # state mismatch. This was a material source of turnover in V1.
-        if self.position is None and self._has_mgc_exposure():
-            self._liquidate_all_mgc("untracked MGC exposure")
-            self.counts["untracked_exposure"] += 1
-            self.closes.add(price)
-            self.volumes.add(float(bar.volume))
-            return
         feature = self._features(bar)
         if feature is None:
             self.closes.add(price)
@@ -143,6 +135,12 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         return 1.0 / (1.0 + math.exp(-score))
 
     def _enter(self, direction, price, atr, probability):
+        # Do not submit a new order while an earlier entry/exit still has a
+        # live MGC holding.  Do not liquidate it here: a liquidation submitted
+        # on the prior bar can remain invested until the next fill.
+        if self._has_mgc_exposure():
+            self.counts["exposure_blocked"] += 1
+            return
         mapped = self.mgc.mapped
         if mapped is None or mapped not in self.securities or not self.securities[mapped].is_tradable:
             return
@@ -162,6 +160,10 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         if self.position is None:
             return
         p = self.position
+        if p.get("exiting", False):
+            if not self.portfolio[p["symbol"]].invested:
+                self.position = None
+            return
         if not self.portfolio[p["symbol"]].invested:
             self.position = None
             return
@@ -170,7 +172,10 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         targeted = price >= p["target"] if p["direction"] > 0 else price <= p["target"]
         if stopped or targeted or p["hours"] >= 24:
             self.liquidate(p["symbol"], tag="AI exit")
-            self.position = None
+            # Keep the state until the liquidation is actually filled.  The
+            # prior version cleared it immediately and then repeatedly
+            # liquidated a still-open holding as an "untracked" position.
+            p["exiting"] = True
             self.counts["exits"] += 1
 
     @staticmethod
@@ -179,11 +184,6 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
 
     def _has_mgc_exposure(self):
         return any(sec.invested and sym.value.startswith("MGC") for sym, sec in self.securities.items())
-
-    def _liquidate_all_mgc(self, reason):
-        for sym, sec in self.securities.items():
-            if sec.invested and sym.value.startswith("MGC"):
-                self.liquidate(sym, tag=reason)
 
     def on_end_of_algorithm(self):
         self.debug("AI COUNTS: {}; weights={}".format(self.counts, [round(w, 3) for w in self.weights]))
