@@ -53,7 +53,11 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         self.atr_5.update(bar)
         if self.is_warming_up or not self.atr_5.is_ready or self.h1.count < 45:
             self.m5.add(bar)
-            self._add_flow(bar)
+            # Inline the proxy update so pasted QuantConnect files cannot
+            # fail because a helper method was omitted during copying.
+            signed = float(bar.volume) * (1.0 if bar.close > bar.open else -1.0 if bar.close < bar.open else 0.0)
+            self.signed_volume.add(signed)
+            self.volume_window.add(float(bar.volume))
             return
 
         if self.session_date != self.time.date():
@@ -64,7 +68,9 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
 
         self._manage_position(bar)
         self.m5.add(bar)
-        self._add_flow(bar)
+        signed = float(bar.volume) * (1.0 if bar.close > bar.open else -1.0 if bar.close < bar.open else 0.0)
+        self.signed_volume.add(signed)
+        self.volume_window.add(float(bar.volume))
         if self.position is not None or self.trades_today >= 2 or self.losses_today >= 2:
             return
 
