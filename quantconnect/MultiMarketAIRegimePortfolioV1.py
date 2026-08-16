@@ -7,8 +7,8 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
     """Diversified ETF portfolio with per-market online AI risk filters.
 
     The model is trained only after each 24-hour outcome is observable. It
-    ranks markets by model confidence plus trend strength once per day and
-    limits gross exposure to 60% across at most three independent positions.
+    uses AI as a risk filter and ranks established trends weekly, limiting
+    gross exposure to 50% across at most two independent positions.
     """
     def initialize(self):
         self.set_start_date(2012, 1, 1)
@@ -23,8 +23,10 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
             symbol = self.add_equity(ticker, Resolution.HOUR).symbol
             self.symbols[ticker] = symbol
             self.states[symbol] = {
-                "ema_fast": self.ema(symbol, 20, Resolution.HOUR),
-                "ema_slow": self.ema(symbol, 60, Resolution.HOUR),
+                # About 20/60 regular trading days at hourly resolution.
+                # Direction comes from this slower, more robust trend leg.
+                "ema_fast": self.ema(symbol, 140, Resolution.HOUR),
+                "ema_slow": self.ema(symbol, 420, Resolution.HOUR),
                 "rsi": self.rsi(symbol, 14, MovingAverageType.WILDERS, Resolution.HOUR),
                 "atr": self.atr(symbol, 20, MovingAverageType.WILDERS, Resolution.HOUR),
                 "closes": RollingWindow[float](80),
@@ -38,9 +40,9 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
         self.label_horizon = 24
         self.counts = {"labels": 0, "rebalance_days": 0, "candidates": 0,
                        "selected": 0, "risk_off_days": 0}
-        # Rebalance only once after the regular-session hourly inputs settle.
-        self.schedule.on(self.date_rules.every_day(self.symbols["SPY"]),
-                         self.time_rules.at(15, 45), self.rebalance)
+        # Rebalance once weekly, avoiding daily prediction-driven turnover.
+        self.schedule.on(self.date_rules.week_start(self.symbols["SPY"]),
+                         self.time_rules.at(14, 30), self.rebalance)
         # Preserve native hourly data for hourly indicators and model labels.
         self.set_warm_up(timedelta(days=180))
 
@@ -71,12 +73,14 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
             if state["labels"] < 1000 or state["feature"] is None:
                 continue
             probability = self._predict(state, state["feature"])
-            direction = 1 if probability >= 0.65 else -1 if probability <= 0.35 else 0
-            if direction == 0:
+            # AI is a risk filter, not the directional engine. Long-only ETF
+            # exposure avoids the poor short-side behavior of the V1 model.
+            if probability < 0.55:
                 continue
+            direction = 1
             atr = float(state["atr"].current.value)
             trend = float(state["ema_fast"].current.value - state["ema_slow"].current.value)
-            if atr <= 0 or (direction > 0 and trend <= 0.50 * atr) or (direction < 0 and trend >= -0.50 * atr):
+            if atr <= 0 or trend <= 0.50 * atr:
                 continue
             atr_pct = atr / max(state["price"], 1e-8)
             if atr_pct < 0.002 or atr_pct > 0.040:
@@ -90,7 +94,7 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
 
         self.counts["candidates"] += len(ranked)
         ranked.sort(key=lambda x: x[0], reverse=True)
-        chosen = ranked[:3]
+        chosen = ranked[:2]
         if not chosen:
             self.counts["risk_off_days"] += 1
             for symbol in self.states:
@@ -101,7 +105,7 @@ class MultiMarketAIRegimePortfolioV1(QCAlgorithm):
         total_inverse_vol = sum(1.0 / row[3] for row in chosen)
         targets = {}
         for _, symbol, direction, atr_pct in chosen:
-            weight = min(0.25, 0.60 * (1.0 / atr_pct) / total_inverse_vol)
+            weight = min(0.30, 0.50 * (1.0 / atr_pct) / total_inverse_vol)
             targets[symbol] = direction * weight
         for symbol in self.states:
             self.set_holdings(symbol, targets.get(symbol, 0.0), tag="AI regime rebalance")
