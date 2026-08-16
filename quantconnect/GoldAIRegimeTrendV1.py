@@ -45,7 +45,7 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         self.day = None
         self.trades_today = 0
         self.counts = {"labels": 0, "model_signals": 0, "trend_rejected": 0,
-                       "breakout_rejected": 0, "risk_rejected": 0, "exposure_blocked": 0,
+                       "risk_rejected": 0, "exposure_blocked": 0,
                        "entries": 0, "exits": 0}
         self.set_warm_up(timedelta(days=120))
 
@@ -88,16 +88,7 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
                 # Model decides confidence; price structure vetoes trades
                 # against the prevailing hourly trend.
                 if (direction > 0 and trend > 0.50 * atr) or (direction < 0 and trend < -0.50 * atr):
-                    # Only enter after price confirms the AI/trend view by
-                    # escaping its recent hourly range. This removes many
-                    # mean-reverting signals that caused V1 churn.
-                    prior_high = max(self.closes[i] for i in range(8))
-                    prior_low = min(self.closes[i] for i in range(8))
-                    confirmed = (direction > 0 and price > prior_high) or (direction < 0 and price < prior_low)
-                    if confirmed:
-                        self._enter(direction, price, atr, probability)
-                    else:
-                        self.counts["breakout_rejected"] += 1
+                    self._enter(direction, price, atr, probability)
                 else:
                     self.counts["trend_rejected"] += 1
 
@@ -161,8 +152,7 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         self.market_order(mapped, direction, tag="AI regime trend p={:.2f}".format(probability))
         self.position = {"symbol": mapped, "direction": direction, "entry": price,
                          "stop": price - direction * stop_distance,
-                         "target": price + direction * 2.0 * stop_distance,
-                         "risk": stop_distance, "best": price, "hours": 0}
+                         "target": price + direction * 2.0 * stop_distance, "hours": 0}
         self.trades_today += 1
         self.counts["entries"] += 1
 
@@ -178,18 +168,6 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
             self.position = None
             return
         p["hours"] += 1
-        if p["direction"] > 0:
-            p["best"] = max(p["best"], price)
-            if p["best"] >= p["entry"] + p["risk"]:
-                p["stop"] = max(p["stop"], p["entry"])
-            if p["best"] >= p["entry"] + 1.5 * p["risk"]:
-                p["stop"] = max(p["stop"], p["best"] - 1.2 * float(self.atr.current.value))
-        else:
-            p["best"] = min(p["best"], price)
-            if p["best"] <= p["entry"] - p["risk"]:
-                p["stop"] = min(p["stop"], p["entry"])
-            if p["best"] <= p["entry"] - 1.5 * p["risk"]:
-                p["stop"] = min(p["stop"], p["best"] + 1.2 * float(self.atr.current.value))
         stopped = price <= p["stop"] if p["direction"] > 0 else price >= p["stop"]
         targeted = price >= p["target"] if p["direction"] > 0 else price <= p["target"]
         if stopped or targeted or p["hours"] >= 24:
