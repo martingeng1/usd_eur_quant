@@ -7,8 +7,8 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
     """MGC hourly trend strategy with a leakage-free online ML risk filter.
 
     The model is deliberately small and transparent: it learns the probability
-    that gold closes higher 12 hours later from information available at the
-    current hourly close.  It is not a price oracle; trades require both model
+    that gold closes higher 24 hours later from information available at the
+    current hourly close. It is not a price oracle; trades require both model
     confidence and a compatible trend/volatility regime.
     """
     def initialize(self):
@@ -39,12 +39,14 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         self.learning_rate = 0.025
         self.l2 = 0.0005
         self.pending = []
+        self.label_horizon_hours = 24
         self.labels_seen = 0
         self.position = None
         self.day = None
         self.trades_today = 0
         self.counts = {"labels": 0, "model_signals": 0, "trend_rejected": 0,
-                       "risk_rejected": 0, "entries": 0, "exits": 0}
+                       "risk_rejected": 0, "untracked_exposure": 0,
+                       "entries": 0, "exits": 0}
         self.set_warm_up(timedelta(days=120))
 
     def on_hour(self, bar):
@@ -64,6 +66,14 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
             self.trades_today = 0
 
         self._manage(price)
+        # Never stack mapped contracts during a rollover or after an order
+        # state mismatch. This was a material source of turnover in V1.
+        if self.position is None and self._has_mgc_exposure():
+            self._liquidate_all_mgc("untracked MGC exposure")
+            self.counts["untracked_exposure"] += 1
+            self.closes.add(price)
+            self.volumes.add(float(bar.volume))
+            return
         feature = self._features(bar)
         if feature is None:
             self.closes.add(price)
@@ -71,18 +81,21 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
             return
         probability = self._predict(feature)
         # Store today's feature only after its prediction.  It cannot affect
-        # the model until the 12-hour outcome exists.
+        # the model until the 24-hour outcome exists.
         self.pending.append({"price": price, "feature": feature, "age": 0})
 
-        if self.position is None and self.trades_today < 2 and self.labels_seen >= 300:
-            direction = 1 if probability >= 0.60 else -1 if probability <= 0.40 else 0
+        # Train each hour, but take one daily decision at the liquid US session
+        # open. This prevents the model from repeatedly trading hourly noise.
+        decision_time = self.time.hour == 9 and self.time.minute == 0
+        if self.position is None and decision_time and self.trades_today < 1 and self.labels_seen >= 720:
+            direction = 1 if probability >= 0.67 else -1 if probability <= 0.33 else 0
             if direction != 0:
                 self.counts["model_signals"] += 1
                 trend = float(self.ema_fast.current.value - self.ema_slow.current.value)
                 atr = float(self.atr.current.value)
                 # Model decides confidence; price structure vetoes trades
                 # against the prevailing hourly trend.
-                if (direction > 0 and trend > 0.20 * atr) or (direction < 0 and trend < -0.20 * atr):
+                if (direction > 0 and trend > 0.50 * atr) or (direction < 0 and trend < -0.50 * atr):
                     self._enter(direction, price, atr, probability)
                 else:
                     self.counts["trend_rejected"] += 1
@@ -111,7 +124,7 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         surviving = []
         for item in self.pending:
             item["age"] += 1
-            if item["age"] < 12:
+            if item["age"] < self.label_horizon_hours:
                 surviving.append(item)
                 continue
             label = 1.0 if current_price > item["price"] else 0.0
@@ -141,7 +154,7 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         self.market_order(mapped, direction, tag="AI regime trend p={:.2f}".format(probability))
         self.position = {"symbol": mapped, "direction": direction, "entry": price,
                          "stop": price - direction * stop_distance,
-                         "target": price + direction * 2.2 * stop_distance, "hours": 0}
+                         "target": price + direction * 2.0 * stop_distance, "hours": 0}
         self.trades_today += 1
         self.counts["entries"] += 1
 
@@ -155,7 +168,7 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
         p["hours"] += 1
         stopped = price <= p["stop"] if p["direction"] > 0 else price >= p["stop"]
         targeted = price >= p["target"] if p["direction"] > 0 else price <= p["target"]
-        if stopped or targeted or p["hours"] >= 18:
+        if stopped or targeted or p["hours"] >= 24:
             self.liquidate(p["symbol"], tag="AI exit")
             self.position = None
             self.counts["exits"] += 1
@@ -163,6 +176,14 @@ class GoldAIRegimeTrendV1(QCAlgorithm):
     @staticmethod
     def _clip(value, low, high):
         return max(low, min(high, value))
+
+    def _has_mgc_exposure(self):
+        return any(sec.invested and sym.value.startswith("MGC") for sym, sec in self.securities.items())
+
+    def _liquidate_all_mgc(self, reason):
+        for sym, sec in self.securities.items():
+            if sec.invested and sym.value.startswith("MGC"):
+                self.liquidate(sym, tag=reason)
 
     def on_end_of_algorithm(self):
         self.debug("AI COUNTS: {}; weights={}".format(self.counts, [round(w, 3) for w in self.weights]))
