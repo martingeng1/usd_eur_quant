@@ -106,9 +106,12 @@ class GoldAuctionOrderFlowV1(QCAlgorithm):
         atr = float(self.atr_5.current.value)
         second_test = (direction > 0 and bar.low <= self.setup["extreme"] + .50 * atr and bar.close > self.setup["extreme"] + .20 * atr) or \
                       (direction < 0 and bar.high >= self.setup["extreme"] - .50 * atr and bar.close < self.setup["extreme"] - .20 * atr)
-        if second_test:
+        if self.setup.get("tests", 0) == 0 and second_test:
             self.setup["tests"] = 1
             self.counts["second_tests"] += 1
+            # Let the next completed bar prove that control actually changed;
+            # requiring the test and breakout on one bar eliminated every trade.
+            return
 
         if self.setup.get("tests", 0) == 1 and self._confirmation(bar, direction):
             self._enter(direction, bar)
