@@ -1,0 +1,9 @@
+[project]
+name = "gold-alpha-lab"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.1", "numpy>=1.26", "PyYAML>=6.0", "scipy>=1.11"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

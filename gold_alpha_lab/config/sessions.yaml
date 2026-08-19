@@ -1,0 +1,10 @@
+timezone: UTC
+sessions:
+  asia: {timezone: Asia/Tokyo, start: "00:00", end: "09:00"}
+  london_open: {timezone: Europe/London, start: "08:00", end: "10:00"}
+  london_morning: {timezone: Europe/London, start: "08:00", end: "12:00"}
+  london_ny_overlap: {timezone: America/New_York, start: "08:00", end: "12:00"}
+  ny_morning: {timezone: America/New_York, start: "08:00", end: "12:00"}
+  ny_afternoon: {timezone: America/New_York, start: "12:00", end: "16:00"}
+  comex: {timezone: America/New_York, start: "08:20", end: "13:30"}
+daily_rollover: {timezone: America/New_York, time: "17:00"}

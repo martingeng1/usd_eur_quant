@@ -1,0 +1,7 @@
+XAUUSD:
+  source_candidates:
+    - ../data/xauusd_1h_dukascopy_bid.csv
+    - ../data/xauusd_1h.csv
+  native_timeframe: 1h
+  point_value: 1.0
+  quote_currency: USD

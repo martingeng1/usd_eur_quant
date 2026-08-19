@@ -1,0 +1,15 @@
+base:
+  spread_bps: 1.5
+  slippage_bps: 1.0
+  commission_bps: 0.2
+  financing_bps_per_day: 0.0
+stress_2x:
+  spread_bps: 3.0
+  slippage_bps: 2.0
+  commission_bps: 0.4
+  financing_bps_per_day: 0.0
+stress_3x:
+  spread_bps: 4.5
+  slippage_bps: 3.0
+  commission_bps: 0.6
+  financing_bps_per_day: 0.0

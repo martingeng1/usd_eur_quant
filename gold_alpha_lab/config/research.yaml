@@ -1,0 +1,9 @@
+asset: XAUUSD
+internal_timezone: UTC
+default_signal_frequency: 1h
+primary_analysis_frequency: 1h
+target_start: "2005-01-01"
+annualization_hours: 6240
+cost_scenarios: [base, stress_2x, stress_3x]
+min_samples: 30
+recent_windows_days: [1825, 1095, 730, 365]
