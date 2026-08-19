@@ -22,6 +22,7 @@ from src.research.statistics import benjamini_hochberg, summarize_returns
 class ScanResult:
     observations: pd.DataFrame
     summary: pd.DataFrame
+    annual: pd.DataFrame
     quality: dict[str, object]
 
 
@@ -52,6 +53,7 @@ def build_features(data_path: str | Path, root: str | Path) -> tuple[pd.DataFram
 def scan_session_alpha(data_path: str | Path, root: str | Path) -> ScanResult:
     root = Path(root)
     frame, quality = build_features(data_path, root)
+    sessions = _yaml(root / "config" / "sessions.yaml")["sessions"]
     costs = _yaml(root / "config" / "costs.yaml")
     event_rows = []
     events = frame.loc[frame.breakout_event].copy()
@@ -73,13 +75,17 @@ def scan_session_alpha(data_path: str | Path, root: str | Path) -> ScanResult:
         selected = frame.loc[frame[flag]].copy()
         if selected.empty:
             continue
-        day = pd.Series(selected.index.tz_convert("UTC").date, index=selected.index)
+        # Group each session by its own local calendar date.  In particular, Tokyo
+        # 00:00-09:00 crosses UTC midnight and must not be split into two signals.
+        timezone = sessions[name]["timezone"]
+        day = pd.Series(selected.index.tz_convert(timezone).date, index=selected.index)
         per_day = selected.close.groupby(day).agg(["first", "last"])
         r = per_day["last"] / per_day["first"] - 1
         session_returns[name] = r
         stats = summarize_returns(r)
         session_rows.append({"alpha_id": f"session_{name}", "horizon_hours": 0, "cost_scenario": "unlevered", **stats, "recent_mean": float(r.tail(252).mean()), "robustness_score": None, "status": "DESCRIPTIVE", "gross_mean": float(r.mean())})
     # Pre-registered conditional probabilities: these are descriptive tests, not trading rules.
+    annual = pd.DataFrame()
     if {"asia", "london_morning", "ny_morning"}.issubset(session_returns):
         daily = pd.concat(session_returns, axis=1).dropna()
         conditions = {
@@ -95,10 +101,25 @@ def scan_session_alpha(data_path: str | Path, root: str | Path) -> ScanResult:
                                  "median": float("nan"), "std": float("nan"), "profit_factor": float("nan"), "sharpe": float("nan"),
                                  "sortino": float("nan"), "t_stat": float("nan"), "p_value": float("nan"), "max_drawdown": float("nan"),
                                  "recent_mean": float("nan"), "robustness_score": None, "status": "DESCRIPTIVE", "gross_mean": probability})
+        # Executable interpretation of the continuation condition: at the first
+        # NY-morning bar, go long only if the completed Asian session was positive.
+        base_cost = CostModel(**costs["base"]).round_trip_return_cost
+        daily["trade"] = daily["asia"] > 0
+        daily["gross_return"] = daily["ny_morning"].where(daily.trade, 0.0)
+        daily["base_net_return"] = daily.gross_return - base_cost * daily.trade.astype(float)
+        annual_rows = []
+        for year, group in daily.groupby(pd.to_datetime(daily.index).year):
+            annual_rows.append({
+                "year": int(year), "trades": int(group.trade.sum()),
+                "gross_return_pct": (float((1 + group.gross_return).prod()) - 1) * 100,
+                "base_net_return_pct": (float((1 + group.base_net_return).prod()) - 1) * 100,
+                "win_rate_pct": float(group.loc[group.trade, "ny_morning"].gt(0).mean() * 100),
+            })
+        annual = pd.DataFrame(annual_rows)
     summary = pd.DataFrame(event_rows + session_rows)
     summary["fdr_q_value"] = benjamini_hochberg(summary["p_value"])
     observations = events[["close", "asia_high", "asia_low", "asia_range", "atr", "trend_state", "regime", "breakout_direction", "fake_break_event", "forward_1h", "forward_2h", "forward_4h", "mfe_1h", "mae_1h"]].copy()
-    return ScanResult(observations=observations, summary=summary, quality=quality)
+    return ScanResult(observations=observations, summary=summary, annual=annual, quality=quality)
 
 
 def write_scan(result: ScanResult, output_root: str | Path) -> None:
@@ -107,6 +128,7 @@ def write_scan(result: ScanResult, output_root: str | Path) -> None:
     (output / "reports").mkdir(parents=True, exist_ok=True)
     result.observations.to_csv(output / "alpha_scan" / "asian_breakout_observations.csv")
     result.summary.to_csv(output / "alpha_scan" / "session_alpha_summary.csv", index=False)
+    result.annual.to_csv(output / "alpha_scan" / "asia_up_ny_morning_annual_returns.csv", index=False)
     (output / "reports" / "data_quality.json").write_text(json.dumps(result.quality, indent=2), encoding="utf-8")
-    report = ["# Session Alpha Scan", "", "All results use the actual loaded data range. Values are descriptive and cost-aware, not a claim of deployable alpha.", "", "```csv", result.summary.to_csv(index=False), "```"]
+    report = ["# Session Alpha Scan", "", "All results use the actual loaded data range. Values are descriptive and cost-aware, not a claim of deployable alpha.", "", "## All session tests", "```csv", result.summary.to_csv(index=False), "```", "", "## Annual returns: Asia-up -> long NY morning", "```csv", result.annual.to_csv(index=False), "```"]
     (output / "reports" / "session_alpha_report.md").write_text("\n".join(report), encoding="utf-8")

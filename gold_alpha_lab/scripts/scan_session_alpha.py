@@ -15,6 +15,8 @@ def main() -> None:
     write_scan(result, ROOT / "output")
     print("ACTUAL DATA QUALITY:", result.quality)
     print(result.summary.to_string(index=False))
+    print("ANNUAL RETURNS: Asia-up -> long NY morning (base cost)")
+    print(result.annual.to_string(index=False))
     print("Wrote CSV and Markdown reports under output/reports.")
 
 
